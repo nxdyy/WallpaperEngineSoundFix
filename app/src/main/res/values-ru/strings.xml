@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="status_activated">✓ Активировано</string>
+    <string name="status_not_activated">✗ Не активировано</string>
+    <string name="author_info">Автор: %s</string>
+    <string name="instr_header">Инструкция:</string>
+    <string name="instr_step1">Включите модуль в LSPosed, область: Wallpaper Engine</string>
+    <string name="instr_step2">Принудительно остановите и перезапустите Wallpaper Engine</string>
+    <string name="instr_step3">Откройте настройки Wallpaper Engine → General, найдите ползунок Громкость обоев (0-100, по умолчанию 100)</string>
+    <string name="instr_step4">Изменения громкости применяются сразу</string>
+    <string name="instr_scope_header">Что исправлено:</string>
+    <string name="instr_scope_video">• Аудиодорожка видеообоев ✓</string>
+    <string name="instr_scope_scene_video">• Видеоэлементы в сценарных обоях ✓</string>
+    <string name="instr_scope_scene_sound">• Автономные аудиообъекты в сценарных обоях ✓</string>
+    <string name="instr_principle_header">Принцип:</string>
+    <string name="instr_principle_video">• Видео: приложение принительно отключает звук, хук заменяет на громкость пользователя</string>
+    <string name="instr_principle_scene">• Аудио сцен: нативный движок пуст, виртуальная таблица подключена к Java MediaPlayer</string>
+    <string name="pref_volume_title">Громкость обоев</string>
+    <string name="free_notice">Этот модуль полностью бесплатен, распространяется только через GitHub и 123 Cloud. Если вы скачали его с перепродажных платформ, немедленно сообщите о продавце.</string>
+    <string name="author_website">Сайт автора: %s</string>
+    <string name="scene_export_notice">Сценарные обои, экспортированные с ПК, не содержат звук. Решение:</string>
+    <string name="pkg2mpkg_url">https://github.com/nxdyy/pkg2mpkg</string>
+    <string name="copy">Копировать</string>
+    <string name="copied">Скопировано</string>
+    <string name="pref_volume_summary">Исправить бесшумные обои: управление громкостью видео</string>
+    <string name="author_bilibili">Bilibili автора: %s</string>
+</resources>

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="status_activated">✓ Suaktyvinta</string>
+    <string name="status_not_activated">✗ Nesuaktyvinta</string>
+    <string name="author_info">Autorius: %s</string>
+    <string name="instr_header">Naudojimo instrukcija:</string>
+    <string name="instr_step1">Įjunkite šį modulį LSPosed, taikymo sritis: Wallpaper Engine</string>
+    <string name="instr_step2">Priverstinai uždarykite ir iš naujo atidarykite Wallpaper Engine</string>
+    <string name="instr_step3">Atidarykite Wallpaper Engine Nustatymai → General, raskite slankiklį Fono garsumas (0-100, numatytasis 100)</string>
+    <string name="instr_step4">Garsumo pakeitimai įsigalioja iš karto</string>
+    <string name="instr_scope_header">Pataisymai:</string>
+    <string name="instr_scope_video">• Vaizdo fono garso takelis ✓</string>
+    <string name="instr_scope_scene_video">• Vaizdo elementai scenose ✓</string>
+    <string name="instr_scope_scene_sound">• Nepriklausomi garso objektai scenose ✓</string>
+    <string name="instr_principle_header">Veikimo principas:</string>
+    <string name="instr_principle_video">• Vaizdas: programa numatytai nutildo, hook pakeičia vartotojo garsumu</string>
+    <string name="instr_principle_scene">• Scenos garsas: gimtasis variklis tuščias, virtualus lentelė prijungta prie Java MediaPlayer</string>
+    <string name="pref_volume_title">Fono garsumas</string>
+    <string name="free_notice">Šis modulis yra visiškai nemokamas, platinamas tik per GitHub ir 123 Cloud. Jei jį atsisiuntėte iš perpardavimo platformų, nedelsdami praneškite apie pardavėją.</string>
+    <string name="author_website">Autoriaus svetainė: %s</string>
+    <string name="scene_export_notice">Iš kompiuterio eksportuoti fono scenos neturi garso. Sprendimas:</string>
+    <string name="pkg2mpkg_url">https://github.com/nxdyy/pkg2mpkg</string>
+    <string name="copy">Kopijuoti</string>
+    <string name="copied">Nukopijuota</string>
+    <string name="pref_volume_summary">Pataisyti tylius fonus: valdyti vaizdo garsumą</string>
+    <string name="author_bilibili">Autoriaus Bilibili: %s</string>
+</resources>

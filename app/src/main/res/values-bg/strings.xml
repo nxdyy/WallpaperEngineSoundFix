@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="status_activated">✓ Активирано</string>
+    <string name="status_not_activated">✗ Не е активирано</string>
+    <string name="author_info">Автор: %s</string>
+    <string name="instr_header">Инструкции:</string>
+    <string name="instr_step1">Активирайте този модул в LSPosed, обхват: Wallpaper Engine</string>
+    <string name="instr_step2">Принудително спрете и отворете отново Wallpaper Engine</string>
+    <string name="instr_step3">Отворете Настройки на Wallpaper Engine → General, намерете плъзгача Сила на звука на тапета (0-100, по подразбиране 100)</string>
+    <string name="instr_step4">Промените в силата на звука влизат в сила незабавно</string>
+    <string name="instr_scope_header">Поправки:</string>
+    <string name="instr_scope_video">• Аудио пътека на видео тапети ✓</string>
+    <string name="instr_scope_scene_video">• Видео елементи в сцени ✓</string>
+    <string name="instr_scope_scene_sound">• Независими аудио обекти в сцени ✓</string>
+    <string name="instr_principle_header">Принцип:</string>
+    <string name="instr_principle_video">• Видео: приложението заглушава по подразбиране, hook заменя с потребителска сила на звука</string>
+    <string name="instr_principle_scene">• Сценичен звук: нативният двигател е празен, виртуална таблица свързана към Java MediaPlayer</string>
+    <string name="pref_volume_title">Сила на звука на тапета</string>
+    <string name="free_notice">Този модул е напълно безплатен, разпространява се само чрез GitHub и 123 Cloud. Ако сте го изтеглили от платформи за препродажба, незабавно докладвайте продавача.</string>
+    <string name="author_website">Уебсайт на автора: %s</string>
+    <string name="scene_export_notice">Сцените от фонове, експортирани от компютър, не съдържат звук. Решение:</string>
+    <string name="pkg2mpkg_url">https://github.com/nxdyy/pkg2mpkg</string>
+    <string name="copy">Копиране</string>
+    <string name="copied">Копирано</string>
+    <string name="pref_volume_summary">Поправка на безшумни фонове: контрол на силата на видеото</string>
+    <string name="author_bilibili">Bilibili на автора: %s</string>
+</resources>

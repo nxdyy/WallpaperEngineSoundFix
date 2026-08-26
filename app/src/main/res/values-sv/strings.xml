@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="status_activated">✓ Aktiverad</string>
+    <string name="status_not_activated">✗ Ej aktiverad</string>
+    <string name="author_info">Författare: %s</string>
+    <string name="instr_header">Så här använder du:</string>
+    <string name="instr_step1">Aktivera modulen i LSPosed, räckvidd: Wallpaper Engine</string>
+    <string name="instr_step2">Tvinga avslut och öppna om Wallpaper Engine</string>
+    <string name="instr_step3">Öppna Wallpaper Engine Inställningar → General, hitta Bakgrundsvolym reglaget (0-100, standard 100)</string>
+    <string name="instr_step4">Volymändringar träder i kraft omedelbart</string>
+    <string name="instr_scope_header">Vad som fixas:</string>
+    <string name="instr_scope_video">• Ljudspår för videobakgrunder ✓</string>
+    <string name="instr_scope_scene_video">• Videobjekt i scener ✓</string>
+    <string name="instr_scope_scene_sound">• Självständiga ljudobjekt i scener ✓</string>
+    <string name="instr_principle_header">Så fungerar det:</string>
+    <string name="instr_principle_video">• Video: appen tystar som standard, hook ersätter med användarvolym</string>
+    <string name="instr_principle_scene">• Scenljud: den inbyggda motorn är en stub, virtuella tabellen kopplad till Java MediaPlayer</string>
+    <string name="pref_volume_title">Bakgrundsvolym</string>
+    <string name="free_notice">Denna modul är helt gratis, distribueras endast via GitHub och 123 Cloud. Om du har laddat ner den från återförsäljarplattformar, rapportera säljaren omedelbart.</string>
+    <string name="author_website">Författarens webbplats: %s</string>
+    <string name="scene_export_notice">Scener av bakgrunder exporterade från datorn innehåller inte ljud. Lösning:</string>
+    <string name="pkg2mpkg_url">https://github.com/nxdyy/pkg2mpkg</string>
+    <string name="copy">Kopiera</string>
+    <string name="copied">Kopierat</string>
+    <string name="pref_volume_summary">Fixa tysta bakgrunder: kontrollera videobakgrundsvolym</string>
+    <string name="author_bilibili">Författarens Bilibili: %s</string>
+</resources>

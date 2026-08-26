@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="status_activated">✓ فعال</string>
+    <string name="status_not_activated">✗ غیرفعال</string>
+    <string name="author_info">نویسنده: %s</string>
+    <string name="instr_header">راهنمای استفاده:</string>
+    <string name="instr_step1">این ماژول را در LSPosed فعال کنید، محدوده: Wallpaper Engine</string>
+    <string name="instr_step2">Wallpaper Engine را ببندید و دوباره باز کنید</string>
+    <string name="instr_step3">تنظیمات Wallpaper Engine → General را باز کنید، لغزنده بلندی صدای پس‌زمینه را پیدا کنید (0-100، پیش‌فرض 100)</string>
+    <string name="instr_step4">تغییرات بلندی صدا بلافاصله اعمال می‌شوند</string>
+    <string name="instr_scope_header">اصلاحات:</string>
+    <string name="instr_scope_video">• مسیر صوتی پس‌زمینه‌های ویدیویی ✓</string>
+    <string name="instr_scope_scene_video">• عناصر ویدیویی در صحنه‌ها ✓</string>
+    <string name="instr_scope_scene_sound">• اشیاء صوتی مستقل در صحنه‌ها ✓</string>
+    <string name="instr_principle_header">اصول کار:</string>
+    <string name="instr_principle_video">• ویدیو: برنامه به طور پیش‌فرض صدا را قطع می‌کند، hook با صدای کاربر جایگزین می‌کند</string>
+    <string name="instr_principle_scene">• صدای صحنه: موتور بومی خالی است، جدول مجازی به Java MediaPlayer متصل است</string>
+    <string name="pref_volume_title">بلندی صدای پس‌زمینه</string>
+    <string name="free_notice">این ماژول کاملاً رایگان است و فقط از طریق GitHub و 123 Cloud توزیع می‌شود. اگر آن را از پلتفرم‌های فروش مجدد دانلود کرده‌اید، فوراً فروشنده را گزارش دهید.</string>
+    <string name="author_website">وب‌سایت نویسنده: %s</string>
+    <string name="scene_export_notice">صحنه‌های پس‌زمینه صادر شده از رایانه شامل صدا نیستند. راه حل:</string>
+    <string name="pkg2mpkg_url">https://github.com/nxdyy/pkg2mpkg</string>
+    <string name="copy">کپی</string>
+    <string name="copied">کپی شد</string>
+    <string name="pref_volume_summary">اصلاح پس‌زمینه‌های بی‌صدا: کنترل بلندی صدای ویدیو</string>
+    <string name="author_bilibili">Bilibili نویسنده: %s</string>
+</resources>

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="status_activated">✓ 활성화됨</string>
+    <string name="status_not_activated">✗ 비활성화</string>
+    <string name="author_info">제작자: %s</string>
+    <string name="instr_header">사용 방법:</string>
+    <string name="instr_step1">LSPosed에서 이 모듈 활성화, 범위: Wallpaper Engine</string>
+    <string name="instr_step2">Wallpaper Engine 강제 중지 후 다시 열기</string>
+    <string name="instr_step3">Wallpaper Engine 설정 → General → 배경화면 음량 슬라이더 (0-100, 기본값 100)</string>
+    <string name="instr_step4">음량 변경은 즉시 적용됩니다</string>
+    <string name="instr_scope_header">수정 범위:</string>
+    <string name="instr_scope_video">• 비디오 배경화면 오디오 트랙 ✓</string>
+    <string name="instr_scope_scene_video">• 씬 배경화면의 비디오 요소 오디오 ✓</string>
+    <string name="instr_scope_scene_sound">• 씬 배경화면의 독립 오디오 객체 ✓</string>
+    <string name="instr_principle_header">원리:</string>
+    <string name="instr_principle_video">• 비디오: 앱이 하드코딩으로 음소거, 훅으로 사용자 음량으로 교체</string>
+    <string name="instr_principle_scene">• 씬 오디오: 네이티브 오디오 엔진이 스텁, 가상 테이블을 Java MediaPlayer에 연결</string>
+    <string name="pref_volume_title">배경화면 음량</string>
+    <string name="free_notice">이 모듈은 완전 무료입니다. GitHub 및 123 Cloud를 통해서만 배포됩니다. 다른 플랫폼에서 다운로드한 경우 즉시 판매자를 신고해 주세요.</string>
+    <string name="author_website">제작자 웹사이트: %s</string>
+    <string name="scene_export_notice">PC에서 내보낸 씬 배경화면에는 오디오가 포함되지 않습니다. 해결 방법:</string>
+    <string name="pkg2mpkg_url">https://github.com/nxdyy/pkg2mpkg</string>
+    <string name="copy">복사</string>
+    <string name="copied">복사됨</string>
+    <string name="pref_volume_summary">무음 배경화면 수정: 비디오 배경화면 음량 제어</string>
+    <string name="author_bilibili">제작자 Bilibili: %s</string>
+</resources>

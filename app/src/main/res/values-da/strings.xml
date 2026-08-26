@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="status_activated">✓ Aktiveret</string>
+    <string name="status_not_activated">✗ Ikke aktiveret</string>
+    <string name="author_info">Forfatter: %s</string>
+    <string name="instr_header">Brugsvejledning:</string>
+    <string name="instr_step1">Aktiver dette modul i LSPosed, omfang: Wallpaper Engine</string>
+    <string name="instr_step2">Tving luk og genåbn Wallpaper Engine</string>
+    <string name="instr_step3">Åbn Wallpaper Engine Indstillinger → General, find Baggrundsvolumen skyderen (0-100, standard 100)</string>
+    <string name="instr_step4">Volumenændringer træder i kraft med det samme</string>
+    <string name="instr_scope_header">Hvad der rettes:</string>
+    <string name="instr_scope_video">• Lydspor til video-baggrunde ✓</string>
+    <string name="instr_scope_scene_video">• Videoelementer i scener ✓</string>
+    <string name="instr_scope_scene_sound">• Uafhængige lydobjekter i scener ✓</string>
+    <string name="instr_principle_header">Sådan fungerer det:</string>
+    <string name="instr_principle_video">• Video: appen dæmper som standard, hook erstatter med brugervolumen</string>
+    <string name="instr_principle_scene">• Scenelyd: den indbyggede motor er en stub, virtuel tabel forbundet til Java MediaPlayer</string>
+    <string name="pref_volume_title">Baggrundsvolumen</string>
+    <string name="free_notice">Denne modul er helt gratis, distribueres kun via GitHub og 123 Cloud. Hvis du har downloadet den fra videresalgsplatforme, anmeld sælgeren med det samme.</string>
+    <string name="author_website">Forfatterens hjemmeside: %s</string>
+    <string name="scene_export_notice">Scener af baggrunde eksporteret fra computeren indeholder ikke lyd. Løsning:</string>
+    <string name="pkg2mpkg_url">https://github.com/nxdyy/pkg2mpkg</string>
+    <string name="copy">Kopier</string>
+    <string name="copied">Kopieret</string>
+    <string name="pref_volume_summary">Fix stumme baggrunde: kontroller video-baggrundsvolumen</string>
+    <string name="author_bilibili">Forfatterens Bilibili: %s</string>
+</resources>

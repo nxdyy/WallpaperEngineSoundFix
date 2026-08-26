@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="status_activated">✓ Geactiveerd</string>
+    <string name="status_not_activated">✗ Niet geactiveerd</string>
+    <string name="author_info">Auteur: %s</string>
+    <string name="instr_header">Gebruiksaanwijzing:</string>
+    <string name="instr_step1">Schakel deze module in LSPosed in, bereik: Wallpaper Engine</string>
+    <string name="instr_step2">Forceer stop en heropen Wallpaper Engine</string>
+    <string name="instr_step3">Open Wallpaper Engine Instellingen → General, zoek de Achtergrondvolume schuifregelaar (0-100, standaard 100)</string>
+    <string name="instr_step4">Volumewijzigingen zijn onmiddellijk van kracht</string>
+    <string name="instr_scope_header">Wat wordt hersteld:</string>
+    <string name="instr_scope_video">• Audiotrack van video-achtergronden ✓</string>
+    <string name="instr_scope_scene_video">• Video-elementen in scènes ✓</string>
+    <string name="instr_scope_scene_sound">• Zelfstandige audio-objecten in scènes ✓</string>
+    <string name="instr_principle_header">Werkwijze:</string>
+    <string name="instr_principle_video">• Video: app dempt standaard, hook vervangt door gebruikersvolume</string>
+    <string name="instr_principle_scene">• Scène-audio: native engine is een stub, virtuele tabel verbonden met Java MediaPlayer</string>
+    <string name="pref_volume_title">Achtergrondvolume</string>
+    <string name="free_notice">Deze module is volledig gratis, alleen beschikbaar via GitHub en 123 Cloud. Als u het van doorverkoopplatforms heeft gedownload, meld de verkoper dan onmiddellijk.</string>
+    <string name="author_website">Auteurswebsite: %s</string>
+    <string name="scene_export_notice">Scènes van achtergronden geëxporteerde vanaf pc bevatten geen audio. Oplossing:</string>
+    <string name="pkg2mpkg_url">https://github.com/nxdyy/pkg2mpkg</string>
+    <string name="copy">Kopiëren</string>
+    <string name="copied">Gekopieerd</string>
+    <string name="pref_volume_summary">Stille achtergronden oplossen: video-achtergrondvolume regelen</string>
+    <string name="author_bilibili">Auteurs-Bilibili: %s</string>
+</resources>

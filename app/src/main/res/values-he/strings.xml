@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="status_activated">✓ מופעל</string>
+    <string name="status_not_activated">✗ לא מופעל</string>
+    <string name="author_info">מפתח: %s</string>
+    <string name="instr_header">הוראות שימוש:</string>
+    <string name="instr_step1">הפעל מודול זה ב-LSPosed, תחום: Wallpaper Engine</string>
+    <string name="instr_step2">כפה סגור ופתח מחדש את Wallpaper Engine</string>
+    <string name="instr_step3">פתח הגדרות Wallpaper Engine → General, מצא את המחוון עוצמת שמע רקע (0-100, ברירת מחדל 100)</string>
+    <string name="instr_step4">שינויי עוצמת שמע נכנסים לתוקף מיידית</string>
+    <string name="instr_scope_header">תיקונים:</string>
+    <string name="instr_scope_video">• רצועת שמע של רקעים וידאו ✓</string>
+    <string name="instr_scope_scene_video">• אלמנטי וידאו בסצנות ✓</string>
+    <string name="instr_scope_scene_sound">• אובייקטי שמע עצמאיים בסצנות ✓</string>
+    <string name="instr_principle_header">עקרון פעולה:</string>
+    <string name="instr_principle_video">• וידאו: האפליקציה משתיקה כברירת מחדל, hook מחליף בעוצמת המשתמש</string>
+    <string name="instr_principle_scene">• שמע סצנה: המנוע המקורי ריק, טבלה וירטואלית מחוברת ל-Java MediaPlayer</string>
+    <string name="pref_volume_title">עוצמת שמע רקע</string>
+    <string name="free_notice">מודול זה חינמי לחלוטין, מופץ רק דרך GitHub ו-123 Cloud. אם הורדת אותו מפלטפורמות מכירה חוזרת, דווח על המוכר מיד.</string>
+    <string name="author_website">אתר המפתח: %s</string>
+    <string name="scene_export_notice">סצנות רקע שמיוצאות מהמחשב אינן מכילות שמע. פתרון:</string>
+    <string name="pkg2mpkg_url">https://github.com/nxdyy/pkg2mpkg</string>
+    <string name="copy">העתק</string>
+    <string name="copied">הועתק</string>
+    <string name="pref_volume_summary">תקן רקעים שקטים: שליטה בעוצמת וידאו</string>
+    <string name="author_bilibili">Bilibili של המפתח: %s</string>
+</resources>

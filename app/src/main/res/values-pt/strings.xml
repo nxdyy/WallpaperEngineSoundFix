@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="status_activated">✓ Ativado</string>
+    <string name="status_not_activated">✗ Não ativado</string>
+    <string name="author_info">Autor: %s</string>
+    <string name="instr_header">Como usar:</string>
+    <string name="instr_step1">Ative este módulo no LSPosed, escopo: Wallpaper Engine</string>
+    <string name="instr_step2">Force o encerramento e reabra o Wallpaper Engine</string>
+    <string name="instr_step3">Abra Configurações do Wallpaper Engine → General, encontre o controle deslizante Volume do papel de parede (0-100, padrão 100)</string>
+    <string name="instr_step4">As alterações de volume entram em vigor imediatamente</string>
+    <string name="instr_scope_header">Correções:</string>
+    <string name="instr_scope_video">• Faixa de áudio de papéis de parede em vídeo ✓</string>
+    <string name="instr_scope_scene_video">• Elementos de vídeo em cenas ✓</string>
+    <string name="instr_scope_scene_sound">• Objetos de áudio independentes em cenas ✓</string>
+    <string name="instr_principle_header">Funcionamento:</string>
+    <string name="instr_principle_video">• Vídeo: o app silencia por padrão, o hook substitui pelo volume do usuário</string>
+    <string name="instr_principle_scene">• Áudio de cena: o motor nativo está vazio, a tabela virtual é conectada ao Java MediaPlayer</string>
+    <string name="pref_volume_title">Volume do papel de parede</string>
+    <string name="free_notice">Este módulo é completamente gratuito, distribuído apenas via GitHub e 123 Cloud. Se você baixou de plataformas de revenda, denuncie o vendedor imediatamente.</string>
+    <string name="author_website">Site do autor: %s</string>
+    <string name="scene_export_notice">Cenas de papel de parede exportadas do PC não incluem áudio. Solução:</string>
+    <string name="pkg2mpkg_url">https://github.com/nxdyy/pkg2mpkg</string>
+    <string name="copy">Copiar</string>
+    <string name="copied">Copiado</string>
+    <string name="pref_volume_summary">Corrigir papéis de parede mudos: controlar o volume de vídeo</string>
+    <string name="author_bilibili">Bilibili do autor: %s</string>
+</resources>

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="status_activated">✓ Aktivert</string>
+    <string name="status_not_activated">✗ Ikke aktivert</string>
+    <string name="author_info">Forfatter: %s</string>
+    <string name="instr_header">Bruksanvisning:</string>
+    <string name="instr_step1">Aktiver denne modulen i LSPosed, omfang: Wallpaper Engine</string>
+    <string name="instr_step2">Tving lukking og gjenåpne Wallpaper Engine</string>
+    <string name="instr_step3">Åpne Wallpaper Engine Innstillinger → General, finn Bakgrunnsvolum glidebryteren (0-100, standard 100)</string>
+    <string name="instr_step4">Volumendringer trer i kraft umiddelbart</string>
+    <string name="instr_scope_header">Hva som fikses:</string>
+    <string name="instr_scope_video">• Lydspor for videobakgrunner ✓</string>
+    <string name="instr_scope_scene_video">• Videoelementer i scener ✓</string>
+    <string name="instr_scope_scene_sound">• Uavhengige lydobjekter i scener ✓</string>
+    <string name="instr_principle_header">Slik fungerer det:</string>
+    <string name="instr_principle_video">• Video: appen demper som standard, hook erstatter med brukervolum</string>
+    <string name="instr_principle_scene">• Scenelyd: den innebygde motoren er en stub, virtuell tabell koblet til Java MediaPlayer</string>
+    <string name="pref_volume_title">Bakgrunnsvolum</string>
+    <string name="free_notice">Denne modulen er helt gratis, distribueres kun via GitHub og 123 Cloud. Hvis du har lastet den ned fra videresalgsplattformer, rapporter selgeren umiddelbart.</string>
+    <string name="author_website">Forfatterens nettside: %s</string>
+    <string name="scene_export_notice">Scener av bakgrunner eksportert fra datamaskinen inneholder ikke lyd. Løsning:</string>
+    <string name="pkg2mpkg_url">https://github.com/nxdyy/pkg2mpkg</string>
+    <string name="copy">Kopier</string>
+    <string name="copied">Kopiert</string>
+    <string name="pref_volume_summary">Fiks stille bakgrunner: kontroller videobakgrunnsvolum</string>
+    <string name="author_bilibili">Forfatterens Bilibili: %s</string>
+</resources>

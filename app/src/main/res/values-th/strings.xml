@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="status_activated">✓ เปิดใช้งานแล้ว</string>
+    <string name="status_not_activated">✗ ยังไม่เปิดใช้งาน</string>
+    <string name="author_info">ผู้เขียน: %s</string>
+    <string name="instr_header">วิธีใช้:</string>
+    <string name="instr_step1">เปิดใช้โมดูลนี้ใน LSPosed, ขอบเขต: Wallpaper Engine</string>
+    <string name="instr_step2">บังคับปิดและเปิด Wallpaper Engine ใหม่</string>
+    <string name="instr_step3">เปิด การตั้งค่า Wallpaper Engine → General, หาสไลเดอร์ ระดับเสียงวอลเปเปอร์ (0-100, ค่าเริ่มต้น 100)</string>
+    <string name="instr_step4">การเปลี่ยนแปลงระดับเสียงมีผลทันที</string>
+    <string name="instr_scope_header">สิ่งที่แก้ไข:</string>
+    <string name="instr_scope_video">• แทร็กเสียงวอลเปเปอร์วิดีโอ ✓</string>
+    <string name="instr_scope_scene_video">• องค์ประกอบวิดีโอในฉาก ✓</string>
+    <string name="instr_scope_scene_sound">• วัตถุเสียงอิสระในฉาก ✓</string>
+    <string name="instr_principle_header">หลักการทำงาน:</string>
+    <string name="instr_principle_video">• วิดีโอ: แอปปิดเสียงโดยค่าเริ่มต้น, hook แทนที่ด้วยระดับเสียงของผู้ใช้</string>
+    <string name="instr_principle_scene">• เสียงฉาก: เอ็นจิ้นเนทีฟเป็นสตับ, ตารางเสมือนเชื่อมต่อกับ Java MediaPlayer</string>
+    <string name="pref_volume_title">ระดับเสียงวอลเปเปอร์</string>
+    <string name="free_notice">โมดูลนี้ฟรีทั้งหมด แจกจ่ายเฉพาะผ่าน GitHub และ 123 Cloud เท่านั้น หากคุณดาวน์โหลดจากแพลตฟอร์มขายต่อ กรุณาแจ้งผู้ขายทันที</string>
+    <string name="author_website">เว็บไซต์ผู้เขียน: %s</string>
+    <string name="scene_export_notice">ฉากวอลเปเปอร์ที่ส่งออกจากคอมพิวเตอร์ไม่มีเสียง วิธีแก้:</string>
+    <string name="pkg2mpkg_url">https://github.com/nxdyy/pkg2mpkg</string>
+    <string name="copy">คัดลอก</string>
+    <string name="copied">คัดลอกแล้ว</string>
+    <string name="pref_volume_summary">แก้ไขวอลเปเปอร์เงียบ: ควบคุมระดับเสียงวิดีโอ</string>
+    <string name="author_bilibili">Bilibili ผู้เขียน: %s</string>
+</resources>

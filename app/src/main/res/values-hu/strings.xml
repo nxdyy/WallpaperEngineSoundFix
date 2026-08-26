@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="status_activated">✓ Aktiválva</string>
+    <string name="status_not_activated">✗ Nincs aktiválva</string>
+    <string name="author_info">Szerző: %s</string>
+    <string name="instr_header">Használat:</string>
+    <string name="instr_step1">Engedélyezze ezt a modult a LSPosedban, hatókör: Wallpaper Engine</string>
+    <string name="instr_step2">Kényszerítse a bezárást és nyissa meg újra a Wallpaper Engine-t</string>
+    <string name="instr_step3">Nyissa meg a Wallpaper Engine Beállítások → General, keresse meg a Háttér hangereje csúszkát (0-100, alapértelmezett 100)</string>
+    <string name="instr_step4">A hangerőváltozások azonnal érvénybe lépnek</string>
+    <string name="instr_scope_header">Javítások:</string>
+    <string name="instr_scope_video">• Videós háttérképek hangsávja ✓</string>
+    <string name="instr_scope_scene_video">• Videó elemek jelenetekben ✓</string>
+    <string name="instr_scope_scene_sound">• Független hangobjektumok jelenetekben ✓</string>
+    <string name="instr_principle_header">Működés:</string>
+    <string name="instr_principle_video">• Videó: az alkalmazás alapértelmezetten némít, a hook felhasználói hangerőre cseréli</string>
+    <string name="instr_principle_scene">• Jelenet hang: a natív motor üres, virtuális táblázat csatlakoztatva a Java MediaPlayer-hez</string>
+    <string name="pref_volume_title">Háttér hangereje</string>
+    <string name="free_notice">Ez a modul teljesen ingyenes, csak a GitHub és a 123 Cloud segítségével terjesztik. Ha viszonteladó platformról töltötte le, azonnal jelentse az eladót.</string>
+    <string name="author_website">Szerző weboldala: %s</string>
+    <string name="scene_export_notice">Számítógépről exportált jelenet-háttérképek nem tartalmaznak hangot. Megoldás:</string>
+    <string name="pkg2mpkg_url">https://github.com/nxdyy/pkg2mpkg</string>
+    <string name="copy">Másolás</string>
+    <string name="copied">Másolva</string>
+    <string name="pref_volume_summary">Némított háttérképek javítása: videó-háttér hangerejének vezérlése</string>
+    <string name="author_bilibili">Szerző Bilibili: %s</string>
+</resources>

@@ -1,9 +1,14 @@
 package io.wallpaper.soundfix
 
+import android.app.AlertDialog
 import android.content.Context
+import android.content.Intent
 import android.content.SharedPreferences
 import android.media.MediaPlayer
+import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import io.github.libxposed.api.XposedModule
 import io.github.libxposed.api.XposedModuleInterface
@@ -85,6 +90,13 @@ class HookEntry : XposedModule() {
         } catch (t: Throwable) {
             log(Log.ERROR, TAG, "hook AudioRecorder pause failed", t)
         }
+
+        // 首次运行弹窗（仅壁纸引擎内，只弹一次）
+        try {
+            hookFirstRunDialog(cl)
+        } catch (t: Throwable) {
+            log(Log.ERROR, TAG, "hook first-run dialog failed", t)
+        }
     }
 
     /**
@@ -134,6 +146,97 @@ class HookEntry : XposedModule() {
             }
             result
         }
+    }
+
+    /**
+     * 首次运行弹窗（壁纸引擎内，只弹一次）。
+     * 检测下载来源，提醒被收费的用户举报。
+     */
+    private fun hookFirstRunDialog(cl: ClassLoader) {
+        val browseClass = cl.loadClass("io.wallpaperengine.weclient.BrowseActivity")
+        val onCreateMethod = browseClass.getDeclaredMethod("onCreate", Bundle::class.java)
+        val shownKey = "we_soundfix_dialog_shown"
+
+        hook(onCreateMethod).intercept { chain ->
+            val result = chain.proceed()
+            try {
+                val activity = chain.thisObject as? Context ?: return@intercept result
+                val prefs = obtainPrefs() ?: return@intercept result
+                if (prefs.getBoolean(shownKey, false)) return@intercept result
+                prefs.edit().putBoolean(shownKey, true).apply()
+
+                Handler(Looper.getMainLooper()).postDelayed({
+                    showSourceDialog(activity)
+                }, 500)
+            } catch (t: Throwable) {
+                log(Log.WARN, TAG, "first-run dialog failed", t)
+            }
+            result
+        }
+    }
+
+    private fun showSourceDialog(ctx: Context) {
+        val sources = arrayOf("迅雷网盘", "夸克网盘", "123云盘", "GitHub", "QQ群")
+        AlertDialog.Builder(ctx)
+            .setTitle("你从哪里下载的模块")
+            .setSingleChoiceItems(sources, -1) { dialog, which ->
+                dialog.dismiss()
+                when (which) {
+                    0, 1, 4 -> showPaidResultDialog(ctx)   // 迅雷/夸克/QQ群 → 问是否付费
+                    else -> return@setSingleChoiceItems     // 123云盘/GitHub → 关闭
+                }
+            }
+            .setCancelable(false)
+            .show()
+    }
+
+    private fun showPaidResultDialog(ctx: Context) {
+        val items = arrayOf("付费了😡😡", "没有😍😍")
+        AlertDialog.Builder(ctx)
+            .setTitle("你付费了吗")
+            .setSingleChoiceItems(items, -1) { dialog, which ->
+                dialog.dismiss()
+                when (which) {
+                    0 -> showScammedDialog(ctx)     // 付费了
+                    1 -> showMockDialog(ctx)        // 没有
+                }
+            }
+            .setCancelable(false)
+            .show()
+    }
+
+    /** 付费了 → 提醒举报 */
+    private fun showScammedDialog(ctx: Context) {
+        val isZhCN = ctx.resources.configuration.locales[0].let {
+            it.language == "zh" && it.country == "CN"
+        }
+        val msg = if (isZhCN) {
+            "这个老牧师的商家，太可恶了，火速举报！！😡😡😡😡\n\n（123云盘关掉付费弹窗可以不付费下载😍）"
+        } else {
+            "这个商家太可恶了，火速举报！！😡😡😡😡\n\n（123云盘关掉付费弹窗可以不付费下载😍）"
+        }
+        AlertDialog.Builder(ctx)
+            .setTitle("😡😡😡")
+            .setMessage(msg)
+            .setPositiveButton("我马上去") { _, _ -> }
+            .setNeutralButton("打开真正作者主页") { _, _ ->
+                ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://space.bilibili.com/660595349")))
+            }
+            .setCancelable(false)
+            .show()
+    }
+
+    /** 没有 → 调侃 */
+    private fun showMockDialog(ctx: Context) {
+        AlertDialog.Builder(ctx)
+            .setTitle("🤣🤣🤣")
+            .setMessage("你知道吗：你看到的那个视频的作者已经捞到了5块钱了🤣🤣🤣")
+            .setPositiveButton("我超级生气😡") { _, _ -> }
+            .setNeutralButton("打开真正作者主页") { _, _ ->
+                ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://space.bilibili.com/660595349")))
+            }
+            .setCancelable(false)
+            .show()
     }
 
     /** Hook MediaPlayer.setVolume：静音调用 (0,0) → 用户音量；并跟踪实例。 */
@@ -232,11 +335,14 @@ class HookEntry : XposedModule() {
         val prefClass = cl.loadClass("androidx.preference.SeekBarPreference")
         val pref = prefClass.getConstructor(Context::class.java).newInstance(context)
 
+        val lang = context.resources.configuration.locales[0].language
+        val region = context.resources.configuration.locales[0].country
+        val key = if (lang == "zh" && region == "TW") "zh-rTW" else lang
+        val (title, summary) = PREF_I18N[key] ?: PREF_I18N["en"]!!
+
         pref.javaClass.getMethod("setKey", String::class.java).invoke(pref, PREF_KEY)
-        pref.javaClass.getMethod("setTitle", CharSequence::class.java)
-            .invoke(pref, if (isChinese(context)) "壁纸音量" else "Wallpaper volume")
-        pref.javaClass.getMethod("setSummary", CharSequence::class.java)
-            .invoke(pref, if (isChinese(context)) "修复壁纸无声：控制视频壁纸播放音量" else "Fix silent wallpapers: control video volume")
+        pref.javaClass.getMethod("setTitle", CharSequence::class.java).invoke(pref, title)
+        pref.javaClass.getMethod("setSummary", CharSequence::class.java).invoke(pref, summary)
         pref.javaClass.getMethod("setIconSpaceReserved", Boolean::class.javaPrimitiveType).invoke(pref, false)
         pref.javaClass.getMethod("setMin", Int::class.javaPrimitiveType).invoke(pref, 0)
         pref.javaClass.getMethod("setMax", Int::class.javaPrimitiveType).invoke(pref, 100)
@@ -289,14 +395,50 @@ class HookEntry : XposedModule() {
         }
     }
 
-    private fun isChinese(context: Context): Boolean =
-        context.resources.configuration.locales[0].language == "zh"
-
     companion object {
         private const val TAG = "WESoundFix"
         private const val TARGET_PACKAGE = "io.wallpaperengine.weclient"
         private const val PREF_KEY = "general_volume"
         private const val DEFAULT_VOLUME = 100
+
+        /** 注入壁纸引擎设置的音量滑条标题和摘要，按设备语言匹配。 */
+        private val PREF_I18N = mapOf(
+            "zh-rTW" to ("桌布音量" to "修復桌布無聲：控制影片桌布播放音量"),
+            "zh"     to ("壁纸音量" to "修复壁纸无声：控制视频壁纸播放音量"),
+            "ja"     to ("壁紙音量" to "壁紙の音声を修正：動画壁紙の音量を制御"),
+            "ko"     to ("배경화면 음량" to "무음 배경화면 수정: 비디오 배경화면 음량 제어"),
+            "fr"     to ("Volume du fond d'écran" to "Corriger les fonds d'écran muets : contrôler le volume vidéo"),
+            "de"     to ("Hintergrund-Lautstärke" to "Stumme Hintergründe beheben: Video-Hintergrund-Lautstärke steuern"),
+            "es"     to ("Volumen de fondo" to "Corregir fondos silenciosos: controlar el volumen de vídeo"),
+            "pt"     to ("Volume do papel de parede" to "Corrigir papéis de parede mudos: controlar o volume de vídeo"),
+            "ru"     to ("Громкость обоев" to "Исправить бесшумные обои: управление громкостью видео"),
+            "it"     to ("Volume sfondo" to "Correggi sfondi silenziosi: controlla il volume video"),
+            "pl"     to ("Głośność tapety" to "Napraw ciche tapety: kontroluj głośność wideo"),
+            "nl"     to ("Achtergrondvolume" to "Stille achtergronden oplossen: video-achtergrondvolume regelen"),
+            "sv"     to ("Bakgrundsvolym" to "Fixa tysta bakgrunder: kontrollera videobakgrundsvolym"),
+            "da"     to ("Baggrundsvolumen" to "Fix stumme baggrunde: kontroller video-baggrundsvolumen"),
+            "nb"     to ("Bakgrunnsvolum" to "Fiks stille bakgrunner: kontroller videobakgrunnsvolum"),
+            "fi"     to ("Taustan äänenvoimakkuus" to "Korjaa hiljaiset taustat: hallitse videotakustan äänenvoimakkuutta"),
+            "cs"     to ("Hlasitost pozadí" to "Opravit tichá pozadí: ovládat hlasitost videa"),
+            "sk"     to ("Hlasitosť pozadia" to "Opraviť tiché pozadia: ovládať hlasitosť videa"),
+            "hu"     to ("Háttér hangereje" to "Némított háttérképek javítása: videó-háttér hangerejének vezérlése"),
+            "ro"     to ("Volum fundal" to "Repară fundaluri silențioase: controlează volumul video"),
+            "tr"     to ("Arka plan ses seviyesi" to "Sessiz duvar kağıtlarını düzelt: video ses seviyesini kontrol et"),
+            "el"     to ("Ένταση φόντου" to "Διόρθωση σιωπηρών φόντων: έλεγχος έντασης βίντεο"),
+            "bg"     to ("Сила на звука на тапета" to "Поправка на безшумни фонове: контрол на силата на видеото"),
+            "uk"     to ("Гучність шпалер" to "Виправити безшумні шпалери: керування гучністю відео"),
+            "ar"     to ("صورة الخلفية" to "إصلاح خلفيات صامتة: التحكم في مستوى صوت الفيديو"),
+            "he"     to ("עוצמת שמע רקע" to "תקן רקעים שקטים: שליטה בעוצמת וידאו"),
+            "fa"     to ("بلندی صدای پس‌زمینه" to "اصلاح پس‌زمینه‌های بی‌صدا: کنترل بلندی صدای ویدیو"),
+            "id"     to ("Volume latar belakang" to "Perbaiki wallpaper sunyi: kontrol volume video"),
+            "th"     to ("ระดับเสียงวอลเปเปอร์" to "แก้ไขวอลเปเปอร์เงียบ: ควบคุมระดับเสียงวิดีโอ"),
+            "vi"     to ("Âm lượng hình nền" to "Sửa hình nền im lặng: điều khiển âm lượng video"),
+            "eu"     to ("Hondoaren bolumena" to "Konpondu isil-hondoak: kontrolatu bideoaren bolumena"),
+            "sl"     to ("Glasnost ozadja" to "Popravi tiha ozadja: upravljaj glasnost videa"),
+            "lt"     to ("Fono garsumas" to "Pataisyti tylius fonus: valdyti vaizdo garsumą"),
+            "be"     to ("Гучнасць шпалер" to "Выпраўці бясшумныя шпалеры: кіраванне гучнасцю відэа"),
+            "en"     to ("Wallpaper volume" to "Fix silent wallpapers: control video wallpaper volume"),
+        )
 
         /** native 引擎是否已安装（防重复）。 */
         @Volatile

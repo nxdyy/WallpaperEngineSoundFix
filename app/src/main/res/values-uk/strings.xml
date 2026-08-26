@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="status_activated">✓ Активовано</string>
+    <string name="status_not_activated">✗ Не активовано</string>
+    <string name="author_info">Автор: %s</string>
+    <string name="instr_header">Інструкція:</string>
+    <string name="instr_step1">Увімкніть цей модуль у LSPosed, область: Wallpaper Engine</string>
+    <string name="instr_step2">Примусово зупиніть та перезапустіть Wallpaper Engine</string>
+    <string name="instr_step3">Відкрийте Налаштування Wallpaper Engine → General, знайдіть повзунок Гучність шпалер (0-100, за замовчуванням 100)</string>
+    <string name="instr_step4">Зміни гучності застосовуються негайно</string>
+    <string name="instr_scope_header">Виправлено:</string>
+    <string name="instr_scope_video">• Аудіодоріжка відеошпалер ✓</string>
+    <string name="instr_scope_scene_video">• Відеоелементи у сценах ✓</string>
+    <string name="instr_scope_scene_sound">• Автономні аудіооб\'єкти у сценах ✓</string>
+    <string name="instr_principle_header">Принцип:</string>
+    <string name="instr_principle_video">• Відео: додаток вимикає звук за замовчуванням, хук замінює на гучність користувача</string>
+    <string name="instr_principle_scene">• Аудіо сцени: нативний рушій порожній, віртуальна таблиця підключена до Java MediaPlayer</string>
+    <string name="pref_volume_title">Гучність шпалер</string>
+    <string name="free_notice">Цей модуль повністю безкоштовний, поширюється лише через GitHub та 123 Cloud. Якщо ви завантажили його з платформ перепродажу, негайно повідомте про продавця.</string>
+    <string name="author_website">Вебсайт автора: %s</string>
+    <string name="scene_export_notice">Сценарні шпалери, експортовані з ПК, не містять звуку. Рішення:</string>
+    <string name="pkg2mpkg_url">https://github.com/nxdyy/pkg2mpkg</string>
+    <string name="copy">Копіювати</string>
+    <string name="copied">Скопійовано</string>
+    <string name="pref_volume_summary">Виправити безшумні шпалери: керування гучністю відео</string>
+    <string name="author_bilibili">Bilibili автора: %s</string>
+</resources>

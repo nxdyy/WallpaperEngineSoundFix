@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="status_activated">✓ Aktivirano</string>
+    <string name="status_not_activated">✗ Ni aktivirano</string>
+    <string name="author_info">Avtor: %s</string>
+    <string name="instr_header">Navodila:</string>
+    <string name="instr_step1">Omogočite ta modul v LSPosed, obseg: Wallpaper Engine</string>
+    <string name="instr_step2">Prisilno zaprite in ponovno odprite Wallpaper Engine</string>
+    <string name="instr_step3">Odprite Nastavitve Wallpaper Engine → General, poiščite drsnik Glasnost ozadja (0-100, privzeto 100)</string>
+    <string name="instr_step4">Spremembe glasnosti se uveljavijo takoj</string>
+    <string name="instr_scope_header">Popravljeno:</string>
+    <string name="instr_scope_video">• Zvočna sled video ozadij ✓</string>
+    <string name="instr_scope_scene_video">• Video elementi v prizorih ✓</string>
+    <string name="instr_scope_scene_sound">• Neodvisni zvočni objekti v prizorih ✓</string>
+    <string name="instr_principle_header">Način delovanja:</string>
+    <string name="instr_principle_video">• Video: aplikacija privzeto utiša, hook zamenja z uporabnikovo glasnostjo</string>
+    <string name="instr_principle_scene">• Zvok prizora: izvorni motor je prazen, virtualna tabela povezana z Java MediaPlayer</string>
+    <string name="pref_volume_title">Glasnost ozadja</string>
+    <string name="free_notice">Ta modul je popolnoma brezplačen, distribuiran samo prek GitHub in 123 Cloud. Če ste ga prenesli s platform za preprodajo, nemogoče prijavite prodajalca.</string>
+    <string name="author_website">Spletna stran avtorja: %s</string>
+    <string name="scene_export_notice">Prizori ozadij, izvoženi iz računalnika, ne vsebujejo zvoka. Rešitev:</string>
+    <string name="pkg2mpkg_url">https://github.com/nxdyy/pkg2mpkg</string>
+    <string name="copy">Kopiraj</string>
+    <string name="copied">Kopirano</string>
+    <string name="pref_volume_summary">Popravi tiha ozadja: upravljaj glasnost videa</string>
+    <string name="author_bilibili">Bilibili avtorja: %s</string>
+</resources>

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="status_activated">✓ Aktivováno</string>
+    <string name="status_not_activated">✗ Neaktivováno</string>
+    <string name="author_info">Autor: %s</string>
+    <string name="instr_header">Návod:</string>
+    <string name="instr_step1">Povolte tento modul v LSPosed, rozsah: Wallpaper Engine</string>
+    <string name="instr_step2">Vynuceně ukončete a znovu otevřete Wallpaper Engine</string>
+    <string name="instr_step3">Otevřete Nastavení Wallpaper Engine → General, najděte posuvník Hlasitost pozadí (0-100, výchozí 100)</string>
+    <string name="instr_step4">Změny hlasitosti se projeví okamžitě</string>
+    <string name="instr_scope_header">Opraveno:</string>
+    <string name="instr_scope_video">• Zvuková stopa video pozadí ✓</string>
+    <string name="instr_scope_scene_video">• Video prvky ve scénách ✓</string>
+    <string name="instr_scope_scene_sound">• Nezávislé zvukové objekty ve scénách ✓</string>
+    <string name="instr_principle_header">Jak to funguje:</string>
+    <string name="instr_principle_video">• Video: aplikace vypíná zvuk ve výchozím nastavení, hook nahradí uživatelskou hlasitostí</string>
+    <string name="instr_principle_scene">• Zvuk scény: nativní engine je prázdný, virtuální tabulka připojená k Java MediaPlayer</string>
+    <string name="pref_volume_title">Hlasitost pozadí</string>
+    <string name="free_notice">Tento modul je zcela zdarma, distribuován pouze přes GitHub a 123 Cloud. Pokud jste jej stáhli z přeprodejních platforem, okamžitě nahlaste prodejce.</string>
+    <string name="author_website">Web autora: %s</string>
+    <string name="scene_export_notice">Scény pozadí exportované z počítače neobsahují zvuk. Řešení:</string>
+    <string name="pkg2mpkg_url">https://github.com/nxdyy/pkg2mpkg</string>
+    <string name="copy">Kopírovat</string>
+    <string name="copied">Zkopírováno</string>
+    <string name="pref_volume_summary">Opravit tichá pozadí: ovládat hlasitost videa</string>
+    <string name="author_bilibili">Bilibili autora: %s</string>
+</resources>

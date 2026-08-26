@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="status_activated">✓ Activated</string>
+    <string name="status_not_activated">✗ Not activated</string>
+    <string name="author_info">Author: %s</string>
+    <string name="instr_header">How to use:</string>
+    <string name="instr_step1">Enable this module in LSPosed, scope: Wallpaper Engine</string>
+    <string name="instr_step2">Force stop and reopen Wallpaper Engine</string>
+    <string name="instr_step3">Open Wallpaper Engine Settings → General, find the Wallpaper volume slider (0-100, default 100)</string>
+    <string name="instr_step4">Volume changes take effect immediately</string>
+    <string name="instr_scope_header">What\'s fixed:</string>
+    <string name="instr_scope_video">• Video wallpaper audio track ✓</string>
+    <string name="instr_scope_scene_video">• Video elements in scene wallpapers ✓</string>
+    <string name="instr_scope_scene_sound">• Standalone audio objects in scene wallpapers ✓</string>
+    <string name="instr_principle_header">How it works:</string>
+    <string name="instr_principle_video">• Video: app hardcodes mute, hook replaces with user volume</string>
+    <string name="instr_principle_scene">• Scene audio: native audio engine is a stub, vtable bridged to Java MediaPlayer</string>
+    <string name="pref_volume_title">Wallpaper volume</string>
+    <string name="free_notice">This module is completely free, distributed only via GitHub and 123 Cloud. If you downloaded it from reseller platforms, please report the seller immediately.</string>
+    <string name="author_website">Author website: %s</string>
+    <string name="scene_export_notice">Scene wallpapers exported from PC do not include audio. Solution:</string>
+    <string name="pkg2mpkg_url">https://github.com/nxdyy/pkg2mpkg</string>
+    <string name="copy">Copy</string>
+    <string name="copied">Copied</string>
+    <string name="pref_volume_summary">Fix silent wallpapers: control video wallpaper volume</string>
+    <string name="author_bilibili">Author Bilibili: %s</string>
+</resources>

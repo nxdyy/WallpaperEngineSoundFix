@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="status_activated">✓ Ενεργοποιημένο</string>
+    <string name="status_not_activated">✗ Δεν ενεργοποιήθηκε</string>
+    <string name="author_info">Συγγραφέας: %s</string>
+    <string name="instr_header">Οδηγίες χρήσης:</string>
+    <string name="instr_step1">Ενεργοποιήστε αυτή τη μονάδα στο LSPosed, εμβέλεια: Wallpaper Engine</string>
+    <string name="instr_step2">Αναγκάστε τερματισμό και ανοίξτε ξανά το Wallpaper Engine</string>
+    <string name="instr_step3">Ανοίξτε Ρυθμίσεις Wallpaper Engine → General, βρείτε τον ολισθητή Ένταση φόντου (0-100, προεπιλογή 100)</string>
+    <string name="instr_step4">Οι αλλαγές έντασης εφαρμόζονται αμέσως</string>
+    <string name="instr_scope_header">Διορθώσεις:</string>
+    <string name="instr_scope_video">• Ηχητικό κομμάτι βίντεο φόντου ✓</string>
+    <string name="instr_scope_scene_video">• Στοιχεία βίντεο σε σκηνές ✓</string>
+    <string name="instr_scope_scene_sound">• Ανεξάρτητα ηχητικά αντικείμενα σε σκηνές ✓</string>
+    <string name="instr_principle_header">Αρχή λειτουργίας:</string>
+    <string name="instr_principle_video">• Βίντεο: η εφαρμογή σβήνει τον ήχο εξ ορισμού, το hook αντικαθιστά με την ένταση χρήστη</string>
+    <string name="instr_principle_scene">• Ήχος σκηνής: η εγγενής μηχανή είναι κενή, ο πίνακας συνδέεται στο Java MediaPlayer</string>
+    <string name="pref_volume_title">Ένταση φόντου</string>
+    <string name="free_notice">Αυτή η μονάδα είναι εντελώς δωρεάν, διανέμεται μόνο μέσω GitHub και 123 Cloud. Αν την κατεβάσατε από πλατφόρμες μεταπώλησης, αναφέρετε αμέσως τον πωλητή.</string>
+    <string name="author_website">Ιστοσελίδα συγγραφέα: %s</string>
+    <string name="scene_export_notice">Οι σκηνές φόντου που εξάγονται από υπολογιστή δεν περιέχουν ήχο. Λύση:</string>
+    <string name="pkg2mpkg_url">https://github.com/nxdyy/pkg2mpkg</string>
+    <string name="copy">Αντιγραφή</string>
+    <string name="copied">Αντιγράφηκε</string>
+    <string name="pref_volume_summary">Διόρθωση σιωπηρών φόντων: έλεγχος έντασης βίντεο</string>
+    <string name="author_bilibili">Bilibili συγγραφέα: %s</string>
+</resources>

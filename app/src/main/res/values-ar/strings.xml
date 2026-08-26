@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="status_activated">✓ مُفعّل</string>
+    <string name="status_not_activated">✗ غير مُفعّل</string>
+    <string name="author_info">المؤلف: %s</string>
+    <string name="instr_header">طريقة الاستخدام:</string>
+    <string name="instr_step1">فعّل هذا الوحدة في LSPosed، النطاق: Wallpaper Engine</string>
+    <string name="instr_step2">أوقف Wallpaper Engine بالقوة وأعد فتحه</string>
+    <string name="instr_step3">افتح إعدادات Wallpaper Engine → General، ابحث عن شريط صورة الخلفية (0-100، الافتراضي 100)</string>
+    <string name="instr_step4">تغييرات الصوت تُطبق فوراً</string>
+    <string name="instr_scope_header">الإصلاحات:</string>
+    <string name="instr_scope_video">• مسار الصوت لخلفيات الفيديو ✓</string>
+    <string name="instr_scope_scene_video">• عناصر الفيديو في المشاهد ✓</string>
+    <string name="instr_scope_scene_sound">• كائنات الصوت المستقلة في المشاهد ✓</string>
+    <string name="instr_principle_header">مبدأ العمل:</string>
+    <string name="instr_principle_video">• الفيديو: التطبيق يكتم الصوت افتراضياً، الخطاف يستبدله بصوت المستخدم</string>
+    <string name="instr_principle_scene">• صوت المشهد: المحرك الأصلي فارغ، الجدول الافتراضي متصل بـ Java MediaPlayer</string>
+    <string name="pref_volume_title">صورة الخلفية</string>
+    <string name="free_notice">هذا الوحدة مجانية تمامًا، تُوزع فقط عبر GitHub و 123 Cloud. إذا قمت بتنزيلها من منصات إعادة البيع، يُرجى الإبلاغ عن البائع فورًا.</string>
+    <string name="author_website">موقع المؤلف: %s</string>
+    <string name="scene_export_notice">المشاهد المُصدّرة من الكمبيوتر لا تحتوي على صوت. الحل:</string>
+    <string name="pkg2mpkg_url">https://github.com/nxdyy/pkg2mpkg</string>
+    <string name="copy">نسخ</string>
+    <string name="copied">تم النسخ</string>
+    <string name="pref_volume_summary">إصلاح خلفيات صامتة: التحكم في مستوى صوت الفيديو</string>
+    <string name="author_bilibili">Bilibili المؤلف: %s</string>
+</resources>

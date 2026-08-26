@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="status_activated">✓ Aktibatuta</string>
+    <string name="status_not_activated">✗ Ez aktibatuta</string>
+    <string name="author_info">Egilea: %s</string>
+    <string name="instr_header">Erabiltzeko:</string>
+    <string name="instr_step1">Modulu hau aktibatu LSPosed-en, esparrua: Wallpaper Engine</string>
+    <string name="instr_step2">Derrigortu ixki eta ireki berriro Wallpaper Engine</string>
+    <string name="instr_step3">Ireki Wallpaper Engine Ezarpenak → General, bilatu Hondoaren bolumena graduatzailea (0-100, lehenetsia 100)</string>
+    <string name="instr_step4">Bolumen aldaketak berehala aplikatzen dira</string>
+    <string name="instr_scope_header">Zuzenduta:</string>
+    <string name="instr_scope_video">• Bideo hondoaren audio pista ✓</string>
+    <string name="instr_scope_scene_video">• Bideo elementuak eszenetan ✓</string>
+    <string name="instr_scope_scene_sound">• Audio objektu independenteak eszenetan ✓</string>
+    <string name="instr_principle_header">Funtzionamendua:</string>
+    <string name="instr_principle_video">• Bideoa: aplikazioak isiltzen du lehenespenez, hook-ek erabiltzailearen bolumenarekin ordezkatzen du</string>
+    <string name="instr_principle_scene">• Eszena audioa: motor natiboa hutsik dago, taula birtuala Java MediaPlayer-era konektatuta</string>
+    <string name="pref_volume_title">Hondoaren bolumena</string>
+    <string name="free_notice">Modulu hau guztiz doakoa da, GitHub eta 123 Cloud bidez soilik banatzen da. Birsalmenta plataformetatik deskargatu baduzu, salatu saltzailea berehala.</string>
+    <string name="author_website">Egilearen webgunea: %s</string>
+    <string name="scene_export_notice">Ordenagailutik esportatutako eszena-hondoek ez dute audiorik. Konponbidea:</string>
+    <string name="pkg2mpkg_url">https://github.com/nxdyy/pkg2mpkg</string>
+    <string name="copy">Kopiatu</string>
+    <string name="copied">Kopiatuta</string>
+    <string name="pref_volume_summary">Konpondu isil-hondoak: kontrolatu bideoaren bolumena</string>
+    <string name="author_bilibili">Egilearen Bilibili: %s</string>
+</resources>

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="status_activated">✓ 已啟用</string>
+    <string name="status_not_activated">✗ 未啟用</string>
+    <string name="author_info">作者：%s</string>
+    <string name="instr_header">使用方式：</string>
+    <string name="instr_step1">在 LSPosed 中啟用本模組，作用域勾選「Wallpaper Engine」</string>
+    <string name="instr_step2">強制停止並重新開啟 Wallpaper Engine</string>
+    <string name="instr_step3">開啟 Wallpaper Engine 設定 → General，找到「桌布音量」滑桿（0-100，預設 100）</string>
+    <string name="instr_step4">音量修改後立即生效，無需重啟桌布</string>
+    <string name="instr_scope_header">修復範圍：</string>
+    <string name="instr_scope_video">• 影片桌布的音軌 ✓</string>
+    <string name="instr_scope_scene_video">• 場景桌布中影片元素的音軌 ✓</string>
+    <string name="instr_scope_scene_sound">• 場景桌布中獨立的音訊物件 ✓</string>
+    <string name="instr_principle_header">原理：</string>
+    <string name="instr_principle_video">• 影片：應用程式硬編碼靜音，hook 替換為使用者音量</string>
+    <string name="instr_principle_scene">• 場景音訊：原生音訊引擎為空殼，虛表橋接到 Java MediaPlayer</string>
+    <string name="pref_volume_title">桌布音量</string>
+    <string name="free_notice">本模組完全免費，僅透過 GitHub 和 123 雲盤提供下載。如果你是從誇克網盤、迅雷網盤等管道下載的，請立刻舉報商家或影片。</string>
+    <string name="author_website">作者網站：%s</string>
+    <string name="scene_export_notice">電腦版匯出的場景類桌布不包含聲音，解決辦法：</string>
+    <string name="pkg2mpkg_url">https://github.com/nxdyy/pkg2mpkg</string>
+    <string name="copy">複製</string>
+    <string name="copied">已複製</string>
+    <string name="pref_volume_summary">修復桌布無聲：控制影片桌布播放音量</string>
+    <string name="author_bilibili">作者嗶哩嗶哩：%s</string>
+</resources>

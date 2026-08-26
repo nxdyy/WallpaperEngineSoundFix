@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="status_activated">✓ Актывавана</string>
+    <string name="status_not_activated">✗ Не актывавана</string>
+    <string name="author_info">Аўтар: %s</string>
+    <string name="instr_header">Інструкцыя:</string>
+    <string name="instr_step1">Уключыце гэты модуль у LSPosed, вобласць: Wallpaper Engine</string>
+    <string name="instr_step2">Прымусова спыніце і перазапусціце Wallpaper Engine</string>
+    <string name="instr_step3">Адчыніце Налады Wallpaper Engine → General, знайдзіце паўзунок Гучнасць шпалер (0-100, прадвызначана 100)</string>
+    <string name="instr_step4">Змены гучнасці ўступаюць у сілу неадкладна</string>
+    <string name="instr_scope_header">Выпраўлена:</string>
+    <string name="instr_scope_video">• Аўдыядарожка відэашпалер ✓</string>
+    <string name="instr_scope_scene_video">• Відэаэлементы ў сцэнах ✓</string>
+    <string name="instr_scope_scene_sound">• Аўтаномныя аўдыяаб\'екты ў сцэнах ✓</string>
+    <string name="instr_principle_header">Прынцып:</string>
+    <string name="instr_principle_video">• Відэа: дадатак адключае гук прадвызначана, хук замяняе на гучнасць карыстальніка</string>
+    <string name="instr_principle_scene">• Аўдыя сцэны: родны рухавік пусты, віртуальная табліца падключана да Java MediaPlayer</string>
+    <string name="pref_volume_title">Гучнасць шпалер</string>
+    <string name="free_notice">Гэты модуль цалкам бясплатны, распаўсюджваецца толькі праз GitHub і 123 Cloud. Калі вы спампавалі яго з платформаў перапродажу, неадкладна паведаміце пра прадаўца.</string>
+    <string name="author_website">Сайт аўтара: %s</string>
+    <string name="scene_export_notice">Сцэнавыя шпалеры, экспартаваныя з ПК, не ўтрымліваюць гуку. Рашэнне:</string>
+    <string name="pkg2mpkg_url">https://github.com/nxdyy/pkg2mpkg</string>
+    <string name="copy">Капіяваць</string>
+    <string name="copied">Скапіявана</string>
+    <string name="pref_volume_summary">Выпраўці бясшумныя шпалеры: кіраванне гучнасцю відэа</string>
+    <string name="author_bilibili">Bilibili аўтара: %s</string>
+</resources>

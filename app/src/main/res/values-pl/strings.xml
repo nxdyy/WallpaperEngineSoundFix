@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="status_activated">✓ Aktywowano</string>
+    <string name="status_not_activated">✗ Nie aktywowano</string>
+    <string name="author_info">Autor: %s</string>
+    <string name="instr_header">Instrukcja:</string>
+    <string name="instr_step1">Włącz ten moduł w LSPosed, zakres: Wallpaper Engine</string>
+    <string name="instr_step2">Wymuś zamknięcie i ponownie otwórz Wallpaper Engine</string>
+    <string name="instr_step3">Otwórz Ustawienia Wallpaper Engine → General, znajdź suwak Głośność tapety (0-100, domyślnie 100)</string>
+    <string name="instr_step4">Zmiany głośności są natychmiastowe</string>
+    <string name="instr_scope_header">Naprawione:</string>
+    <string name="instr_scope_video">• Ścieżka dźwiękowa tapet wideo ✓</string>
+    <string name="instr_scope_scene_video">• Elementy wideo w scenach ✓</string>
+    <string name="instr_scope_scene_sound">• Niezależne obiekty dźwiękowe w scenach ✓</string>
+    <string name="instr_principle_header">Zasada:</string>
+    <string name="instr_principle_video">• Wideo: aplikacja wycisza domyślnie, hook zastępuje głością użytkownika</string>
+    <string name="instr_principle_scene">• Dźwięk scen: natywny silnik jest pusty, tabela wirtualna podłączona do Java MediaPlayer</string>
+    <string name="pref_volume_title">Głośność tapety</string>
+    <string name="free_notice">Ten moduł jest całkowicie darmowy, dystrybuowany wyłącznie przez GitHub i 123 Cloud. Jeśli pobrałeś go z platform odsprzedaży, zgłoś sprzedającego natychmiast.</string>
+    <string name="author_website">Strona autora: %s</string>
+    <string name="scene_export_notice">Sceny tapet wyeksportowane z komputera nie zawierają dźwięku. Rozwiązanie:</string>
+    <string name="pkg2mpkg_url">https://github.com/nxdyy/pkg2mpkg</string>
+    <string name="copy">Kopiuj</string>
+    <string name="copied">Skopiowano</string>
+    <string name="pref_volume_summary">Napraw ciche tapety: kontroluj głośność wideo</string>
+    <string name="author_bilibili">Bilibili autora: %s</string>
+</resources>

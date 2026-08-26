@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="status_activated">✓ Aktivované</string>
+    <string name="status_not_activated">✗ Neaktivované</string>
+    <string name="author_info">Autor: %s</string>
+    <string name="instr_header">Návod:</string>
+    <string name="instr_step1">Povoľte tento modul v LSPosed, rozsah: Wallpaper Engine</string>
+    <string name="instr_step2">Vynúťte zatvorenie a znova otvorte Wallpaper Engine</string>
+    <string name="instr_step3">Otvorte Nastavenia Wallpaper Engine → General, nájdite posuvník Hlasitosť pozadia (0-100, predvolené 100)</string>
+    <string name="instr_step4">Zmeny hlasitosti sa prejavia okamžite</string>
+    <string name="instr_scope_header">Opravené:</string>
+    <string name="instr_scope_video">• Zvuková stopa video pozadí ✓</string>
+    <string name="instr_scope_scene_video">• Video prvky v scénach ✓</string>
+    <string name="instr_scope_scene_sound">• Nezávislé zvukové objekty v scénach ✓</string>
+    <string name="instr_principle_header">Ako to funguje:</string>
+    <string name="instr_principle_video">• Video: aplikácia stlmí zvuk v predvolenom nastavení, hook nahradí hlasitosťou používateľa</string>
+    <string name="instr_principle_scene">• Zvuk scény: natívny motor je prázdny, virtuálna tabuľka pripojená k Java MediaPlayer</string>
+    <string name="pref_volume_title">Hlasitosť pozadia</string>
+    <string name="free_notice">Tento modul je úplne zadarmo, distribuovaný len cez GitHub a 123 Cloud. Ak ste si ho stiahli z platform na ďalší predaj, okamžite nahláste predajcu.</string>
+    <string name="author_website">Web autora: %s</string>
+    <string name="scene_export_notice">Scény pozadí exportované z počítača neobsahujú zvuk. Riešenie:</string>
+    <string name="pkg2mpkg_url">https://github.com/nxdyy/pkg2mpkg</string>
+    <string name="copy">Kopírovať</string>
+    <string name="copied">Skopírované</string>
+    <string name="pref_volume_summary">Opraviť tiché pozadia: ovládať hlasitosť videa</string>
+    <string name="author_bilibili">Bilibili autora: %s</string>
+</resources>

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="status_activated">✓ Activat</string>
+    <string name="status_not_activated">✗ Neactivat</string>
+    <string name="author_info">Autor: %s</string>
+    <string name="instr_header">Instrucțiuni:</string>
+    <string name="instr_step1">Activați acest modul în LSPosed, domeniu: Wallpaper Engine</string>
+    <string name="instr_step2">Forțați oprirea și redeschideți Wallpaper Engine</string>
+    <string name="instr_step3">Deschideți Setări Wallpaper Engine → General, găsiți cursorul Volum fundal (0-100, implicit 100)</string>
+    <string name="instr_step4">Modificările de volum se aplică imediat</string>
+    <string name="instr_scope_header">Corecții:</string>
+    <string name="instr_scope_video">• Pistă audio pentru fundaluri video ✓</string>
+    <string name="instr_scope_scene_video">• Elemente video în scene ✓</string>
+    <string name="instr_scope_scene_sound">• Obiecte audio independente în scene ✓</string>
+    <string name="instr_principle_header">Funcționare:</string>
+    <string name="instr_principle_video">• Video: aplicația dezactivează sunetul implicit, hook-ul înlocuiește cu volumul utilizatorului</string>
+    <string name="instr_principle_scene">• Audio scenă: motorul nativ este gol, tabelul virtual conectat la Java MediaPlayer</string>
+    <string name="pref_volume_title">Volum fundal</string>
+    <string name="free_notice">Acest modul este complet gratuit, distribuit doar prin GitHub și 123 Cloud. Dacă l-ați descărcat de pe platforme de revânzare, raportați vânzătorul imediat.</string>
+    <string name="author_website">Site-ul autorului: %s</string>
+    <string name="scene_export_notice">Scenele de fundal exportate de pe PC nu conțin sunet. Soluție:</string>
+    <string name="pkg2mpkg_url">https://github.com/nxdyy/pkg2mpkg</string>
+    <string name="copy">Copiază</string>
+    <string name="copied">Copiat</string>
+    <string name="pref_volume_summary">Repară fundaluri silențioase: controlează volumul video</string>
+    <string name="author_bilibili">Bilibili autorului: %s</string>
+</resources>

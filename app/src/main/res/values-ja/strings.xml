@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="status_activated">✓ 有効</string>
+    <string name="status_not_activated">✗ 未有効</string>
+    <string name="author_info">作者：%s</string>
+    <string name="instr_header">使い方：</string>
+    <string name="instr_step1">LSPosedで本モジュールを有効化、スコープ：Wallpaper Engine</string>
+    <string name="instr_step2">Wallpaper Engineを強制停止して再起動</string>
+    <string name="instr_step3">Wallpaper Engineの設定 → General → 壁紙音量スライダー（0-100、デフォルト100）</string>
+    <string name="instr_step4">音量変更は即座に反映されます</string>
+    <string name="instr_scope_header">修正範囲：</string>
+    <string name="instr_scope_video">• 動画壁紙の音声トラック ✓</string>
+    <string name="instr_scope_scene_video">• シーン壁紙内の動画要素の音声 ✓</string>
+    <string name="instr_scope_scene_sound">• シーン壁紙内の独立音声オブジェクト ✓</string>
+    <string name="instr_principle_header">仕組み：</string>
+    <string name="instr_principle_video">• 動画：アプリがハードコードでミュート、フックでユーザー音量に置換</string>
+    <string name="instr_principle_scene">• シーン音声：ネイティブ音声エンジンがスタブ、仮想テーブルをJava MediaPlayerにブリッジ</string>
+    <string name="pref_volume_title">壁紙音量</string>
+    <string name="free_notice">このモジュールは完全無料です。GitHub および 123 Cloud でのみ配布されています。他のプラットフォームからダウンロードした場合、販売者を直ちに報告してください。</string>
+    <string name="author_website">作者ウェブサイト：%s</string>
+    <string name="scene_export_notice">PC版からエクスポートしたシーン壁紙には音声が含まれません。解決方法：</string>
+    <string name="pkg2mpkg_url">https://github.com/nxdyy/pkg2mpkg</string>
+    <string name="copy">コピー</string>
+    <string name="copied">コピーしました</string>
+    <string name="pref_volume_summary">壁紙の音声を修正：動画壁紙の音量を制御</string>
+    <string name="author_bilibili">作者のBilibili：%s</string>
+</resources>

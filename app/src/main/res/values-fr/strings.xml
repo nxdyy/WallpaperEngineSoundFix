@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="status_activated">✓ Activé</string>
+    <string name="status_not_activated">✗ Non activé</string>
+    <string name="author_info">Auteur : %s</string>
+    <string name="instr_header">Comment utiliser :</string>
+    <string name="instr_step1">Activez ce module dans LSPosed, portée : Wallpaper Engine</string>
+    <string name="instr_step2">Forcez l\'arrêt et rouvrez Wallpaper Engine</string>
+    <string name="instr_step3">Ouvrez Paramètres de Wallpaper Engine → General, trouvez le curseur Volume du fond d\'écran (0-100, défaut 100)</string>
+    <string name="instr_step4">Les changements de volume prennent effet immédiatement</string>
+    <string name="instr_scope_header">Corrections :</string>
+    <string name="instr_scope_video">• Piste audio des fonds d\'écran vidéo ✓</string>
+    <string name="instr_scope_scene_video">• Éléments vidéo dans les scènes ✓</string>
+    <string name="instr_scope_scene_sound">• Objets audio indépendants dans les scènes ✓</string>
+    <string name="instr_principle_header">Principe :</string>
+    <string name="instr_principle_video">• Vidéo : l\'appli coupe le son par défaut, le hook remplace par le volume utilisateur</string>
+    <string name="instr_principle_scene">• Audio de scène : le moteur natif est un stub, la table virtuelle est reliée à Java MediaPlayer</string>
+    <string name="pref_volume_title">Volume du fond d\'écran</string>
+    <string name="free_notice">Ce module est entièrement gratuit, distribué uniquement via GitHub et 123 Cloud. Si vous l\'avez téléchargé depuis une plateforme de revente, veuillez signaler le vendeur immédiatement.</string>
+    <string name="author_website">Site de l\'auteur : %s</string>
+    <string name="scene_export_notice">Les scènes de fond d\'écran exportées depuis PC ne contiennent pas l\'audio. Solution :</string>
+    <string name="pkg2mpkg_url">https://github.com/nxdyy/pkg2mpkg</string>
+    <string name="copy">Copier</string>
+    <string name="copied">Copié</string>
+    <string name="pref_volume_summary">Corriger les fonds d\'écran muets : contrôler le volume vidéo</string>
+    <string name="author_bilibili">Bilibili de l\'auteur : %s</string>
+</resources>

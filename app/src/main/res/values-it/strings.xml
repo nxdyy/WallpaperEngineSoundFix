@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="status_activated">✓ Attivato</string>
+    <string name="status_not_activated">✗ Non attivato</string>
+    <string name="author_info">Autore: %s</string>
+    <string name="instr_header">Come usare:</string>
+    <string name="instr_step1">Attiva questo modulo in LSPosed, ambito: Wallpaper Engine</string>
+    <string name="instr_step2">Forza la chiusura e riapri Wallpaper Engine</string>
+    <string name="instr_step3">Apri Impostazioni di Wallpaper Engine → General, trova il cursore Volume sfondo (0-100, predefinito 100)</string>
+    <string name="instr_step4">Le modifiche al volume hanno effetto immediato</string>
+    <string name="instr_scope_header">Correzioni:</string>
+    <string name="instr_scope_video">• Traccia audio degli sfondi video ✓</string>
+    <string name="instr_scope_scene_video">• Elementi video nelle scene ✓</string>
+    <string name="instr_scope_scene_sound">• Oggetti audio indipendenti nelle scene ✓</string>
+    <string name="instr_principle_header">Come funziona:</string>
+    <string name="instr_principle_video">• Video: l\'app silenzia per impostazione predefinita, il hook sostituisce con il volume utente</string>
+    <string name="instr_principle_scene">• Audio di scena: il motore nativo è uno stub, la tabella virtuale è collegata a Java MediaPlayer</string>
+    <string name="pref_volume_title">Volume sfondo</string>
+    <string name="free_notice">Questo modulo è completamente gratuito, distribuito solo tramite GitHub e 123 Cloud. Se lo hai scaricato da piattaforme di rivendi, segnala immediatamente il venditore.</string>
+    <string name="author_website">Sito web dell\'autore: %s</string>
+    <string name="scene_export_notice">Le scene di sfondo esportate da PC non contengono audio. Soluzione:</string>
+    <string name="pkg2mpkg_url">https://github.com/nxdyy/pkg2mpkg</string>
+    <string name="copy">Copia</string>
+    <string name="copied">Copiato</string>
+    <string name="pref_volume_summary">Correggi sfondi silenziosi: controlla il volume video</string>
+    <string name="author_bilibili">Bilibili dell\'autore: %s</string>
+</resources>

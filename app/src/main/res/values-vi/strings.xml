@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="status_activated">✓ Đã kích hoạt</string>
+    <string name="status_not_activated">✗ Chưa kích hoạt</string>
+    <string name="author_info">Tác giả: %s</string>
+    <string name="instr_header">Hướng dẫn:</string>
+    <string name="instr_step1">Kích hoạt module này trong LSPosed, phạm vi: Wallpaper Engine</string>
+    <string name="instr_step2">Buộc dừng và mở lại Wallpaper Engine</string>
+    <string name="instr_step3">Mở Cài đặt Wallpaper Engine → General, tìm thanh trượt Âm lượng hình nền (0-100, mặc định 100)</string>
+    <string name="instr_step4">Thay đổi âm lượng có hiệu lực ngay lập tức</string>
+    <string name="instr_scope_header">Sửa lỗi:</string>
+    <string name="instr_scope_video">• Tuyến âm thanh hình nền video ✓</string>
+    <string name="instr_scope_scene_video">• Thành phần video trong cảnh ✓</string>
+    <string name="instr_scope_scene_sound">• Đối tượng âm thanh độc lập trong cảnh ✓</string>
+    <string name="instr_principle_header">Nguyên lý:</string>
+    <string name="instr_principle_video">• Video: ứng dụng tắt tiếng mặc định, hook thay bằng âm lượng người dùng</string>
+    <string name="instr_principle_scene">• Âm thanh cảnh: engine gốc là stub, bảng ảo kết nối với Java MediaPlayer</string>
+    <string name="pref_volume_title">Âm lượng hình nền</string>
+    <string name="free_notice">Module này hoàn toàn miễn phí, chỉ phân phối qua GitHub và 123 Cloud. Nếu bạn tải từ nền tảng bán lại, vui lòng báo cáo người bán ngay lập tức.</string>
+    <string name="author_website">Trang web tác giả: %s</string>
+    <string name="scene_export_notice">Cảnh hình nền xuất từ máy tính không bao gồm âm thanh. Giải pháp:</string>
+    <string name="pkg2mpkg_url">https://github.com/nxdyy/pkg2mpkg</string>
+    <string name="copy">Sao chép</string>
+    <string name="copied">Đã sao chép</string>
+    <string name="pref_volume_summary">Sửa hình nền im lặng: điều khiển âm lượng video</string>
+    <string name="author_bilibili">Bilibili tác giả: %s</string>
+</resources>

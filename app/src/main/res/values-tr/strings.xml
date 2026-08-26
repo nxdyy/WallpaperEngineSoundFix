@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="status_activated">✓ Etkinleştirildi</string>
+    <string name="status_not_activated">✗ Etkinleştirilmedi</string>
+    <string name="author_info">Yazar: %s</string>
+    <string name="instr_header">Nasıl kullanılır:</string>
+    <string name="instr_step1">Bu modülü LSPosed\'ta etkinleştirin, kapsam: Wallpaper Engine</string>
+    <string name="instr_step2">Wallpaper Engine\'i zorla kapatıp yeniden açın</string>
+    <string name="instr_step3">Wallpaper Engine Ayarları → General, Arka plan ses seviyesi kaydırıcısını bulun (0-100, varsayılan 100)</string>
+    <string name="instr_step4">Ses seviyesi değişiklikleri anında uygulanır</string>
+    <string name="instr_scope_header">Düzeltmeler:</string>
+    <string name="instr_scope_video">• Video duvar kağıtları ses izi ✓</string>
+    <string name="instr_scope_scene_video">• Sahne duvar kağıtlarındaki video öğeleri ✓</string>
+    <string name="instr_scope_scene_sound">• Sahne duvar kağıtlarındaki bağımsız ses nesneleri ✓</string>
+    <string name="instr_principle_header">Çalışma prensibi:</string>
+    <string name="instr_principle_video">• Video: uygulama varsayılan olarak sessize alır, hook kullanıcı ses seviyesiyle değiştirir</string>
+    <string name="instr_principle_scene">• Sahne sesi: yerel motor boş, sanal tablo Java MediaPlayer\'e bağlı</string>
+    <string name="pref_volume_title">Arka plan ses seviyesi</string>
+    <string name="free_notice">Bu modül tamamen ücretsizdir ve yalnızca GitHub ve 123 Cloud üzerinden dağıtılır. Yeniden satış platformlarından indirdiyseniz, lütfen satıcıyı hemen bildirin.</string>
+    <string name="author_website">Yazar web sitesi: %s</string>
+    <string name="scene_export_notice">PC\'den dışa aktarılan sahne duvar kağıtları ses içermez. Çözüm:</string>
+    <string name="pkg2mpkg_url">https://github.com/nxdyy/pkg2mpkg</string>
+    <string name="copy">Kopyala</string>
+    <string name="copied">Kopyalandı</string>
+    <string name="pref_volume_summary">Sessiz duvar kağıtlarını düzelt: video ses seviyesini kontrol et</string>
+    <string name="author_bilibili">Yazar Bilibili: %s</string>
+</resources>

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="status_activated">✓ Aktiviert</string>
+    <string name="status_not_activated">✗ Nicht aktiviert</string>
+    <string name="author_info">Autor: %s</string>
+    <string name="instr_header">Anleitung:</string>
+    <string name="instr_step1">Modul in LSPosed aktivieren, Bereich: Wallpaper Engine</string>
+    <string name="instr_step2">Wallpaper Engine erzwingen beenden und neu öffnen</string>
+    <string name="instr_step3">Wallpaper Engine Einstellungen → General, Hintergrund-Lautstärke (0-100, Standard 100)</string>
+    <string name="instr_step4">Lautstärkeänderungen werden sofort wirksam</string>
+    <string name="instr_scope_header">Was wird repariert:</string>
+    <string name="instr_scope_video">• Audio-Spur von Video-Hintergründen ✓</string>
+    <string name="instr_scope_scene_video">• Video-Elemente in Szenen-Hintergründen ✓</string>
+    <string name="instr_scope_scene_sound">• Eigenständige Audio-Objekte in Szenen ✓</string>
+    <string name="instr_principle_header">Funktionsweise:</string>
+    <string name="instr_principle_video">• Video: App stummt standardmäßig, Hook ersetzt durch Benutzerlautstärke</string>
+    <string name="instr_principle_scene">• Szenen-Audio: Native-Engine ist ein Stub, VTable zu Java MediaPlayer verknüpft</string>
+    <string name="pref_volume_title">Hintergrund-Lautstärke</string>
+    <string name="free_notice">Dieses Modul ist komplett kostenlos und wird nur über GitHub und 123 Cloud verbreitet. Wenn Sie es von Wiederverkaufsplattformen heruntergeladen haben, melden Sie bitte sofort den Verkäufer.</string>
+    <string name="author_website">Autorenwebsite: %s</string>
+    <string name="scene_export_notice">Von PC exportierte Szenen-Hintergründe enthalten keinen Ton. Lösung:</string>
+    <string name="pkg2mpkg_url">https://github.com/nxdyy/pkg2mpkg</string>
+    <string name="copy">Kopieren</string>
+    <string name="copied">Kopiert</string>
+    <string name="pref_volume_summary">Stumme Hintergründe beheben: Video-Hintergrund-Lautstärke steuern</string>
+    <string name="author_bilibili">Autoren-Bilibili: %s</string>
+</resources>

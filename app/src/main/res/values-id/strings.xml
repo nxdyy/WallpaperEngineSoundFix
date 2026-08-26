@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="status_activated">✓ Diaktifkan</string>
+    <string name="status_not_activated">✗ Tidak diaktifkan</string>
+    <string name="author_info">Penulis: %s</string>
+    <string name="instr_header">Cara penggunaan:</string>
+    <string name="instr_step1">Aktifkan modul ini di LSPosed, cakupan: Wallpaper Engine</string>
+    <string name="instr_step2">Paksa hentikan dan buka kembali Wallpaper Engine</string>
+    <string name="instr_step3">Buka Pengaturan Wallpaper Engine → General, temukan slider Volume latar belakang (0-100, default 100)</string>
+    <string name="instr_step4">Perubahan volume berlaku segera</string>
+    <string name="instr_scope_header">Yang diperbaiki:</string>
+    <string name="instr_scope_video">• Jalur audio wallpaper video ✓</string>
+    <string name="instr_scope_scene_video">• Elemen video dalam adegan ✓</string>
+    <string name="instr_scope_scene_sound">• Objek audio mandiri dalam adegan ✓</string>
+    <string name="instr_principle_header">Prinsip kerja:</string>
+    <string name="instr_principle_video">• Video: aplikasi membisukan secara default, hook mengganti dengan volume pengguna</string>
+    <string name="instr_principle_scene">• Audio adegan: mesin native kosong, tabel virtual terhubung ke Java MediaPlayer</string>
+    <string name="pref_volume_title">Volume latar belakang</string>
+    <string name="free_notice">Modul ini sepenuhnya gratis, didistribusikan hanya melalui GitHub dan 123 Cloud. Jika Anda mengunduhnya dari platform penjualan ulang, segera laporkan penjualnya.</string>
+    <string name="author_website">Situs web penulis: %s</string>
+    <string name="scene_export_notice">Scene wallpaper yang diekspor dari PC tidak menyertakan audio. Solusi:</string>
+    <string name="pkg2mpkg_url">https://github.com/nxdyy/pkg2mpkg</string>
+    <string name="copy">Salin</string>
+    <string name="copied">Disalin</string>
+    <string name="pref_volume_summary">Perbaiki wallpaper sunyi: kontrol volume video</string>
+    <string name="author_bilibili">Bilibili penulis: %s</string>
+</resources>

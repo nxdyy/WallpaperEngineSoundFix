@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="status_activated">✓ Activado</string>
+    <string name="status_not_activated">✗ No activado</string>
+    <string name="author_info">Autor: %s</string>
+    <string name="instr_header">Cómo usar:</string>
+    <string name="instr_step1">Habilita este módulo en LSPosed, alcance: Wallpaper Engine</string>
+    <string name="instr_step2">Fuerza el cierre y vuelve a abrir Wallpaper Engine</string>
+    <string name="instr_step3">Abre Ajustes de Wallpaper Engine → General, encuentra el deslizador de Volumen de fondo (0-100, predeterminado 100)</string>
+    <string name="instr_step4">Los cambios de volumen se aplican inmediatamente</string>
+    <string name="instr_scope_header">Correcciones:</string>
+    <string name="instr_scope_video">• Pista de audio de fondos de pantalla en vídeo ✓</string>
+    <string name="instr_scope_scene_video">• Elementos de vídeo en escenas ✓</string>
+    <string name="instr_scope_scene_sound">• Objetos de audio independientes en escenas ✓</string>
+    <string name="instr_principle_header">Cómo funciona:</string>
+    <string name="instr_principle_video">• Vídeo: la app silencia por defecto, el hook reemplaza con el volumen del usuario</string>
+    <string name="instr_principle_scene">• Audio de escena: el motor nativo está vacío, la tabla virtual se conecta a Java MediaPlayer</string>
+    <string name="pref_volume_title">Volumen de fondo</string>
+    <string name="free_notice">Este módulo es completamente gratuito, distribuido únicamente a través de GitHub y 123 Cloud. Si lo descargaste desde plataformas de reventa, reporta al vendedor inmediatamente.</string>
+    <string name="author_website">Sitio web del autor: %s</string>
+    <string name="scene_export_notice">Las escenas de fondo exportadas desde PC no incluyen audio. Solución:</string>
+    <string name="pkg2mpkg_url">https://github.com/nxdyy/pkg2mpkg</string>
+    <string name="copy">Copiar</string>
+    <string name="copied">Copiado</string>
+    <string name="pref_volume_summary">Corregir fondos silenciosos: controlar el volumen de vídeo</string>
+    <string name="author_bilibili">Bilibili del autor: %s</string>
+</resources>

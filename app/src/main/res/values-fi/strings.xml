@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="status_activated">✓ Aktivoitu</string>
+    <string name="status_not_activated">✗ Ei aktivoitu</string>
+    <string name="author_info">Tekijä: %s</string>
+    <string name="instr_header">Käyttöohje:</string>
+    <string name="instr_step1">Ota moduuli käyttöön LSPosedissa, sovellus: Wallpaper Engine</string>
+    <string name="instr_step2">Pakota sulkeminen ja avaa Wallpaper Engine uudelleen</string>
+    <string name="instr_step3">Avaa Wallpaper Engine Asetukset → General, etsi Taustan äänenvoimakkuus liukusäädin (0-100, oletus 100)</string>
+    <string name="instr_step4">Äänenvoimakkuuden muutokset tulevat voimaan välittömästi</string>
+    <string name="instr_scope_header">Korjatut:</string>
+    <string name="instr_scope_video">• Videotaustojen ääniraita ✓</string>
+    <string name="instr_scope_scene_video">• Videokohteet kohtauksissa ✓</string>
+    <string name="instr_scope_scene_sound">• Itsenäiset ääniobjektit kohtauksissa ✓</string>
+    <string name="instr_principle_header">Toimintaperiaate:</string>
+    <string name="instr_principle_video">• Video: sovellus mykistää oletuksena, hook korvaa käyttäjän äänenvoimakkuudella</string>
+    <string name="instr_principle_scene">• Kohtausääni: natiivimoottori on tyhjä, virtuaalitaulukko yhdistetty Java MediaPlayeriin</string>
+    <string name="pref_volume_title">Taustan äänenvoimakkuus</string>
+    <string name="free_notice">Tämä moduuli on täysin ilmainen, jaettu vain GitHubin ja 123 Cloudin kautta. Jos olet ladannut sen jälleenmyyntialustoilta, ilmoita myyjästä välittömästi.</string>
+    <string name="author_website">Tekijän verkkosivusto: %s</string>
+    <string name="scene_export_notice">Tietokoneelta viedyt taustakuvaskohtaukset eivät sisällä ääntä. Ratkaisu:</string>
+    <string name="pkg2mpkg_url">https://github.com/nxdyy/pkg2mpkg</string>
+    <string name="copy">Kopioi</string>
+    <string name="copied">Kopioitu</string>
+    <string name="pref_volume_summary">Korjaa hiljaiset taustat: hallitse videotakustan äänenvoimakkuutta</string>
+    <string name="author_bilibili">Tekijän Bilibili: %s</string>
+</resources>

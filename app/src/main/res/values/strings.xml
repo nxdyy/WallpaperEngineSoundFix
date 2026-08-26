@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Wallpaper Engine Sound Fix</string>
+    <string name="app_description">Fix sound issues in Wallpaper Engine for Android via Xposed hooks.</string>
+    <string name="module_instructions">Wallpaper Engine 声音修复模块\n\n使用方法：\n\n1. 在 LSPosed 中启用本模块，作用域勾选「Wallpaper Engine」\n\n2. 强制停止并重新打开 Wallpaper Engine\n\n3. 打开 Wallpaper Engine 的设置 → General，找到「壁纸音量」滑条（0-100，默认 100 即恢复原声音量）\n\n4. 音量修改后立即生效，无需重启壁纸\n\n修复范围：\n\n• 视频壁纸的音轨 ✓\n• 场景壁纸中视频元素的音轨 ✓\n• 场景壁纸中独立的音频对象（Sound）✓ —— 通过 native 层替换音频引擎虚表实现（仅支持 arm64 设备）\n\n原理：\n\n• 视频：应用硬编码静音 (setVolume(0,0))，Java hook 替换为用户音量\n\n• 场景音频：原应用的原生音频引擎是空壳实现，本模块替换其虚表，把音频播放桥接到 Java MediaPlayer</string>
+</resources>

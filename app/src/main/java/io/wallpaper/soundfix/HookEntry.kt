@@ -37,7 +37,7 @@ class HookEntry : XposedModule() {
 
     override fun onPackageReady(param: XposedModuleInterface.PackageReadyParam) {
         super.onPackageReady(param)
-        if (!param.isFirstPackage || param.packageName != TARGET_PACKAGE) return
+        if (!param.isFirstPackage || param.packageName !in TARGET_PACKAGES) return
         log(Log.INFO, TAG, "loaded into ${param.packageName}, installing hooks")
 
         // 初始音量系数
@@ -380,7 +380,7 @@ class HookEntry : XposedModule() {
         return try {
             val app = Class.forName("android.app.ActivityThread")
                 .getDeclaredMethod("currentApplication").invoke(null) as? Context
-            app?.getSharedPreferences("${TARGET_PACKAGE}_preferences", Context.MODE_PRIVATE)?.also { p ->
+            app?.getSharedPreferences("${app.packageName}_preferences", Context.MODE_PRIVATE)?.also { p ->
                 p.registerOnSharedPreferenceChangeListener { _, key ->
                     if (key == PREF_KEY) {
                         SoundBridge.volumeFactor = targetVolume()
@@ -398,6 +398,7 @@ class HookEntry : XposedModule() {
     companion object {
         private const val TAG = "WESoundFix"
         private const val TARGET_PACKAGE = "io.wallpaperengine.weclient"
+        private val TARGET_PACKAGES = setOf(TARGET_PACKAGE, "io.wallpaperengine.nxdyy")
         private const val PREF_KEY = "general_volume"
         private const val DEFAULT_VOLUME = 100
 

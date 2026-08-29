@@ -97,6 +97,13 @@ class HookEntry : XposedModule() {
         } catch (t: Throwable) {
             log(Log.ERROR, TAG, "hook first-run dialog failed", t)
         }
+
+        // 版本更新检查（每次打开壁纸引擎）
+        try {
+            hookUpdateCheck(cl)
+        } catch (t: Throwable) {
+            log(Log.ERROR, TAG, "hook update check failed", t)
+        }
     }
 
     /**
@@ -155,6 +162,7 @@ class HookEntry : XposedModule() {
     private fun hookFirstRunDialog(cl: ClassLoader) {
         val browseClass = cl.loadClass("io.wallpaperengine.weclient.BrowseActivity")
         val onCreateMethod = browseClass.getDeclaredMethod("onCreate", Bundle::class.java)
+            .apply { isAccessible = true }
         val shownKey = "we_soundfix_dialog_shown"
 
         hook(onCreateMethod).intercept { chain ->
@@ -239,6 +247,103 @@ class HookEntry : XposedModule() {
             .show()
     }
 
+    /**
+     * 版本更新检查：每次打开壁纸引擎时异步请求服务器，
+     * 若服务器版本号大于当前 versionCode 且未被用户忽略，则弹出更新提醒。
+     */
+    private fun hookUpdateCheck(cl: ClassLoader) {
+        val browseClass = cl.loadClass("io.wallpaperengine.weclient.BrowseActivity")
+        val onCreateMethod = browseClass.getDeclaredMethod("onCreate", Bundle::class.java)
+            .apply { isAccessible = true }
+        val ignoredKey = "we_soundfix_update_ignored_version"
+
+        hook(onCreateMethod).intercept { chain ->
+            val result = chain.proceed()
+            try {
+                val activity = chain.thisObject as? Context ?: return@intercept result
+                val prefs = obtainPrefs() ?: return@intercept result
+                Thread {
+                    try {
+                        val (serverVersion, changelog) = fetchUpdateInfo() ?: return@Thread
+                        val currentVersion = 3 // versionCode，与 build.gradle.kts 一致
+                        val ignoredVersion = prefs.getInt(ignoredKey, 0)
+                        if (serverVersion <= currentVersion || serverVersion <= ignoredVersion) return@Thread
+                        val updateUrl = httpGet("https://project.nxdyy.cn/WallpaperEngineSoundFix/url")
+                        Handler(Looper.getMainLooper()).post {
+                            try {
+                                showUpdateDialog(activity, serverVersion, changelog, updateUrl, prefs, ignoredKey)
+                            } catch (t: Throwable) {
+                                log(Log.WARN, TAG, "show update dialog failed", t)
+                            }
+                        }
+                    } catch (t: Throwable) {
+                        log(Log.WARN, TAG, "update check failed", t)
+                    }
+                }.start()
+            } catch (t: Throwable) {
+                log(Log.WARN, TAG, "update check hook failed", t)
+            }
+            result
+        }
+    }
+
+    /** GET 请求，返回 body 字符串（trimmed），失败返回 null。 */
+    private fun httpGet(url: String): String? = try {
+        val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+        conn.connectTimeout = 5000
+        conn.readTimeout = 5000
+        conn.requestMethod = "GET"
+        if (conn.responseCode == 200) conn.inputStream.bufferedReader().readText().trim() else null
+    } catch (_: Throwable) {
+        null
+    }
+
+    /** 获取服务器版本号和更新日志，失败返回 null。 */
+    private fun fetchUpdateInfo(): Pair<Int, String>? {
+        val versionStr = httpGet("https://project.nxdyy.cn/WallpaperEngineSoundFix/version") ?: return null
+        val version = versionStr.toIntOrNull() ?: return null
+        val changelog = httpGet("https://project.nxdyy.cn/WallpaperEngineSoundFix/log") ?: ""
+        return version to changelog
+    }
+
+    /** 根据设备语言获取更新弹窗 i18n 文本。 */
+    private fun getUpdateI18N(ctx: Context): Map<String, String> {
+        val lang = ctx.resources.configuration.locales[0].language
+        val region = ctx.resources.configuration.locales[0].country
+        val key = if (lang == "zh" && region == "TW") "zh-rTW" else lang
+        return UPDATE_I18N[key] ?: UPDATE_I18N["en"]!!
+    }
+
+    private fun showUpdateDialog(
+        ctx: Context, serverVersion: Int, changelog: String, updateUrl: String?,
+        prefs: SharedPreferences, ignoredKey: String
+    ) {
+        val i18n = getUpdateI18N(ctx)
+        val versionStr = if (serverVersion > 100) "${serverVersion / 100}.${serverVersion % 100}" else "v$serverVersion"
+        val msg = buildString {
+            append(i18n["version"]!!.format(versionStr))
+            if (changelog.isNotBlank()) {
+                append("\n\n")
+                append(i18n["changelog_header"])
+                append("\n")
+                append(changelog)
+            }
+        }
+        AlertDialog.Builder(ctx)
+            .setTitle(i18n["title"])
+            .setMessage(msg)
+            .setPositiveButton(i18n["update"]) { _, _ ->
+                val url = updateUrl ?: "https://github.com/nxdyy/WallpaperEngineSoundFix/releases"
+                ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+            }
+            .setNegativeButton(i18n["close"]) { _, _ -> }
+            .setNeutralButton(i18n["ignore"]) { _, _ ->
+                prefs.edit().putInt(ignoredKey, serverVersion).apply()
+            }
+            .setCancelable(false)
+            .show()
+    }
+
     /** Hook MediaPlayer.setVolume：静音调用 (0,0) → 用户音量；并跟踪实例。 */
     private fun hookMediaPlayerVolume() {
         val m = MediaPlayer::class.java.getDeclaredMethod("setVolume",
@@ -272,11 +377,11 @@ class HookEntry : XposedModule() {
         val sceneLibClass = Class.forName("io.wallpaperengine.wrapper.SceneLib", false, cl)
         val m = sceneLibClass.getDeclaredMethod("initLibrary", Context::class.java)
         hook(m).intercept { chain ->
-            // 先加载模块 native 库并安装虚表补丁（native 内部会 dlopen libscenejni.so）
+            // 先加载模块 native 库并安装虚表补丁（native 内部会解析内存中的 libscenejni.so）
             if (!nativeInstalled) {
                 try {
-                    val nativeDir = moduleApplicationInfo.nativeLibraryDir
-                    System.load("$nativeDir/libsoundfix.so")
+                    val ctx = chain.getArg(0) as? Context
+                    System.load(resolveModuleNativeLib(ctx))
                     val ok = SoundFixNative.install(SoundBridge)
                     nativeInstalled = ok
                     log(Log.INFO, TAG, "native sound engine install: $ok")
@@ -287,6 +392,42 @@ class HookEntry : XposedModule() {
             // 再调用原方法（加载 libscenejni.so + 初始化场景，此时虚表已补丁）
             chain.proceed()
         }
+    }
+
+    /**
+     * 定位模块的 libsoundfix.so：
+     * 1) 常规 LSPosed：模块独立安装，nativeLibraryDir 有效
+     * 2) npatch 等集成模式：模块 APK 未解压安装，nativeLibraryDir 为 null，
+     *    从模块 APK (sourceDir) 内提取 lib/arm64-v8a/libsoundfix.so 到目标应用缓存目录
+     */
+    private fun resolveModuleNativeLib(ctx: Context?): String {
+        val modInfo = moduleApplicationInfo
+        // 1) 直接已解压的路径
+        modInfo.nativeLibraryDir?.let { dir ->
+            val f = java.io.File(dir, "libsoundfix.so")
+            if (f.exists()) return f.absolutePath
+        }
+        // 2) 从模块 APK 提取
+        val apkPath = modInfo.sourceDir
+            ?: throw IllegalStateException("module sourceDir unavailable")
+        val abi = android.os.Build.SUPPORTED_ABIS.firstOrNull() ?: "arm64-v8a"
+        val appCtx = ctx ?: run {
+            Class.forName("android.app.ActivityThread")
+                .getDeclaredMethod("currentApplication").invoke(null) as Context
+        }
+        val outFile = java.io.File(appCtx.cacheDir, "libsoundfix.so")
+        java.util.zip.ZipFile(apkPath).use { zip ->
+            val entry = zip.getEntry("lib/$abi/libsoundfix.so")
+                ?: zip.getEntry("lib/arm64-v8a/libsoundfix.so")
+                ?: throw IllegalStateException("libsoundfix.so not found in module APK ($apkPath)")
+            zip.getInputStream(entry).use { input ->
+                java.io.FileOutputStream(outFile).use { output ->
+                    input.copyTo(output)
+                }
+            }
+        }
+        log(Log.INFO, TAG, "extracted libsoundfix.so to ${outFile.absolutePath}")
+        return outFile.absolutePath
     }
 
     /** Hook 设置页 onCreatePreferences：向 General 分类注入音量滑条。 */
@@ -439,6 +580,290 @@ class HookEntry : XposedModule() {
             "lt"     to ("Fono garsumas" to "Pataisyti tylius fonus: valdyti vaizdo garsumą"),
             "be"     to ("Гучнасць шпалер" to "Выпраўці бясшумныя шпалеры: кіраванне гучнасцю відэа"),
             "en"     to ("Wallpaper volume" to "Fix silent wallpapers: control video wallpaper volume"),
+        )
+
+        /** 更新弹窗 i18n，keys: title, version, changelog_header, update, close, ignore */
+        private val UPDATE_I18N: Map<String, Map<String, String>> = mapOf(
+            "zh" to mapOf(
+                "title" to "存在新版本！",
+                "version" to "版本：%s",
+                "changelog_header" to "更新日志：",
+                "update" to "更新",
+                "close" to "关闭",
+                "ignore" to "忽略此版本",
+            ),
+            "zh-rTW" to mapOf(
+                "title" to "存在新版本！",
+                "version" to "版本：%s",
+                "changelog_header" to "更新日誌：",
+                "update" to "更新",
+                "close" to "關閉",
+                "ignore" to "忽略此版本",
+            ),
+            "en" to mapOf(
+                "title" to "New version available!",
+                "version" to "Version: %s",
+                "changelog_header" to "Changelog:",
+                "update" to "Update",
+                "close" to "Close",
+                "ignore" to "Ignore this version",
+            ),
+            "ja" to mapOf(
+                "title" to "新しいバージョンがあります！",
+                "version" to "バージョン：%s",
+                "changelog_header" to "変更履歴：",
+                "update" to "更新",
+                "close" to "閉じる",
+                "ignore" to "このバージョンを無視",
+            ),
+            "ko" to mapOf(
+                "title" to "새 버전이 있습니다!",
+                "version" to "버전: %s",
+                "changelog_header" to "변경 로그:",
+                "update" to "업데이트",
+                "close" to "닫기",
+                "ignore" to "이 버전 무시",
+            ),
+            "fr" to mapOf(
+                "title" to "Nouvelle version disponible !",
+                "version" to "Version : %s",
+                "changelog_header" to "Journal des modifications :",
+                "update" to "Mettre à jour",
+                "close" to "Fermer",
+                "ignore" to "Ignorer cette version",
+            ),
+            "de" to mapOf(
+                "title" to "Neue Version verfügbar!",
+                "version" to "Version: %s",
+                "changelog_header" to "Änderungsprotokoll:",
+                "update" to "Aktualisieren",
+                "close" to "Schließen",
+                "ignore" to "Diese Version ignorieren",
+            ),
+            "es" to mapOf(
+                "title" to "¡Nueva versión disponible!",
+                "version" to "Versión: %s",
+                "changelog_header" to "Registro de cambios:",
+                "update" to "Actualizar",
+                "close" to "Cerrar",
+                "ignore" to "Ignorar esta versión",
+            ),
+            "pt" to mapOf(
+                "title" to "Nova versão disponível!",
+                "version" to "Versão: %s",
+                "changelog_header" to "Registro de alterações:",
+                "update" to "Atualizar",
+                "close" to "Fechar",
+                "ignore" to "Ignorar esta versão",
+            ),
+            "ru" to mapOf(
+                "title" to "Доступна новая версия!",
+                "version" to "Версия: %s",
+                "changelog_header" to "Журнал изменений:",
+                "update" to "Обновить",
+                "close" to "Закрыть",
+                "ignore" to "Игнорировать эту версию",
+            ),
+            "it" to mapOf(
+                "title" to "Nuova versione disponibile!",
+                "version" to "Versione: %s",
+                "changelog_header" to "Registro modifiche:",
+                "update" to "Aggiorna",
+                "close" to "Chiudi",
+                "ignore" to "Ignora questa versione",
+            ),
+            "pl" to mapOf(
+                "title" to "Dostępna nowa wersja!",
+                "version" to "Wersja: %s",
+                "changelog_header" to "Dziennik zmian:",
+                "update" to "Aktualizuj",
+                "close" to "Zamknij",
+                "ignore" to "Zignoruj tę wersję",
+            ),
+            "nl" to mapOf(
+                "title" to "Nieuwe versie beschikbaar!",
+                "version" to "Versie: %s",
+                "changelog_header" to "Wijzigingslogboek:",
+                "update" to "Bijwerken",
+                "close" to "Sluiten",
+                "ignore" to "Negeer deze versie",
+            ),
+            "sv" to mapOf(
+                "title" to "Ny version tillgänglig!",
+                "version" to "Version: %s",
+                "changelog_header" to "Ändringslogg:",
+                "update" to "Uppdatera",
+                "close" to "Stäng",
+                "ignore" to "Ignorera denna version",
+            ),
+            "da" to mapOf(
+                "title" to "Ny version tilgængelig!",
+                "version" to "Version: %s",
+                "changelog_header" to "Ændringslog:",
+                "update" to "Opdater",
+                "close" to "Luk",
+                "ignore" to "Ignorer denne version",
+            ),
+            "nb" to mapOf(
+                "title" to "Ny versjon tilgjengelig!",
+                "version" to "Versjon: %s",
+                "changelog_header" to "Endringslogg:",
+                "update" to "Oppdater",
+                "close" to "Lukk",
+                "ignore" to "Ignorer denne versjonen",
+            ),
+            "fi" to mapOf(
+                "title" to "Uusi versio saatavilla!",
+                "version" to "Versio: %s",
+                "changelog_header" to "Muutosloki:",
+                "update" to "Päivitä",
+                "close" to "Sulje",
+                "ignore" to "Ohita tämä versio",
+            ),
+            "cs" to mapOf(
+                "title" to "K dispozici nová verze!",
+                "version" to "Verze: %s",
+                "changelog_header" to "Protokol změn:",
+                "update" to "Aktualizovat",
+                "close" to "Zavřít",
+                "ignore" to "Ignorovat tuto verzi",
+            ),
+            "sk" to mapOf(
+                "title" to "K dispozícii nová verzia!",
+                "version" to "Verzia: %s",
+                "changelog_header" to "Protokol zmien:",
+                "update" to "Aktualizovať",
+                "close" to "Zavrieť",
+                "ignore" to "Ignorovať túto verziu",
+            ),
+            "hu" to mapOf(
+                "title" to "Új verzió érhető el!",
+                "version" to "Verzió: %s",
+                "changelog_header" to "Változásnapló:",
+                "update" to "Frissítés",
+                "close" to "Bezárás",
+                "ignore" to "Verzió figyelmen kívül hagyása",
+            ),
+            "ro" to mapOf(
+                "title" to "Versiune nouă disponibilă!",
+                "version" to "Versiune: %s",
+                "changelog_header" to "Jurnal modificări:",
+                "update" to "Actualizare",
+                "close" to "Închide",
+                "ignore" to "Ignoră această versiune",
+            ),
+            "tr" to mapOf(
+                "title" to "Yeni sürüm mevcut!",
+                "version" to "Sürüm: %s",
+                "changelog_header" to "Değişiklik günlüğü:",
+                "update" to "Güncelle",
+                "close" to "Kapat",
+                "ignore" to "Bu sürümü yoksay",
+            ),
+            "el" to mapOf(
+                "title" to "Νέα έκδοση διαθέσιμη!",
+                "version" to "Έκδοση: %s",
+                "changelog_header" to "Αρχείο καταγραφής:",
+                "update" to "Ενημέρωση",
+                "close" to "Κλείσιμο",
+                "ignore" to "Αγνόηση αυτής της έκδοσης",
+            ),
+            "bg" to mapOf(
+                "title" to "Налична е нова версия!",
+                "version" to "Версия: %s",
+                "changelog_header" to "Дневник на промените:",
+                "update" to "Актуализиране",
+                "close" to "Затвори",
+                "ignore" to "Игнорирай тази версия",
+            ),
+            "uk" to mapOf(
+                "title" to "Доступна нова версія!",
+                "version" to "Версія: %s",
+                "changelog_header" to "Журнал змін:",
+                "update" to "Оновити",
+                "close" to "Закрити",
+                "ignore" to "Ігнорувати цю версію",
+            ),
+            "ar" to mapOf(
+                "title" to "يوجد إصدار جديد!",
+                "version" to "الإصدار: %s",
+                "changelog_header" to "سجل التغييرات:",
+                "update" to "تحديث",
+                "close" to "إغلاق",
+                "ignore" to "تجاهل هذا الإصدار",
+            ),
+            "he" to mapOf(
+                "title" to "גרסה חדשה זמינה!",
+                "version" to "גרסה: %s",
+                "changelog_header" to "יומן שינויים:",
+                "update" to "עדכון",
+                "close" to "סגור",
+                "ignore" to "התעלם מגרסה זו",
+            ),
+            "fa" to mapOf(
+                "title" to "نسخه جدید موجود است!",
+                "version" to "نسخه: %s",
+                "changelog_header" to "گزارش تغییرات:",
+                "update" to "بروزرسانی",
+                "close" to "بستن",
+                "ignore" to "نادیده گرفتن این نسخه",
+            ),
+            "id" to mapOf(
+                "title" to "Versi baru tersedia!",
+                "version" to "Versi: %s",
+                "changelog_header" to "Catatan perubahan:",
+                "update" to "Perbarui",
+                "close" to "Tutup",
+                "ignore" to "Abaikan versi ini",
+            ),
+            "th" to mapOf(
+                "title" to "มีเวอร์ชันใหม่!",
+                "version" to "เวอร์ชัน: %s",
+                "changelog_header" to "บันทึกการเปลี่ยนแปลง:",
+                "update" to "อัปเดต",
+                "close" to "ปิด",
+                "ignore" to "เพิกเฉยเวอร์ชันนี้",
+            ),
+            "vi" to mapOf(
+                "title" to "Có phiên bản mới!",
+                "version" to "Phiên bản: %s",
+                "changelog_header" to "Nhật ký thay đổi:",
+                "update" to "Cập nhật",
+                "close" to "Đóng",
+                "ignore" to "Bỏ qua phiên bản này",
+            ),
+            "eu" to mapOf(
+                "title" to "Bertsu berria eskuragarri!",
+                "version" to "Bertsioa: %s",
+                "changelog_header" to "Aldaketa egunkaria:",
+                "update" to "Eguneratu",
+                "close" to "Itxi",
+                "ignore" to "Ezikusi bertsio hau",
+            ),
+            "sl" to mapOf(
+                "title" to "Na voljo je nova različica!",
+                "version" to "Različica: %s",
+                "changelog_header" to "Dnevnik sprememb:",
+                "update" to "Posodobi",
+                "close" to "Zapri",
+                "ignore" to "Prezri to različico",
+            ),
+            "lt" to mapOf(
+                "title" to "Yra nauja versija!",
+                "version" to "Versija: %s",
+                "changelog_header" to "Pakeitimų žurnalas:",
+                "update" to "Atnaujinti",
+                "close" to "Uždaryti",
+                "ignore" to "Ignoruoti šią versiją",
+            ),
+            "be" to mapOf(
+                "title" to "Даступна новая версія!",
+                "version" to "Версія: %s",
+                "changelog_header" to "Часопіс зменаў:",
+                "update" to "Абнавіць",
+                "close" to "Закрыць",
+                "ignore" to "Ігнараваць гэтую версію",
+            ),
         )
 
         /** native 引擎是否已安装（防重复）。 */

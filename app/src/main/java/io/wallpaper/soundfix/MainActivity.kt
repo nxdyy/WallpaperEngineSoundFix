@@ -214,21 +214,21 @@ class MainActivity : AppCompatActivity() {
         return lines.joinToString("\n")
     }
 
-    private fun isModuleActivated(): Boolean {
-        // HookEntry 类在正常应用中不存在，仅在 LSPosed 模块注入时由框架加载。
-        // 如果当前进程能加载到该类（通过目标 app 的 classloader），
-        // 说明我们是在模块进程中运行的（即模块已激活）。
-        return try {
-            Class.forName("io.wallpaper.soundfix.HookEntry", false, javaClass.classLoader)
-            true
-        } catch (_: ClassNotFoundException) {
-            // 不在模块进程，尝试读 LSPosed 日志文件或检查模块标记
-            try {
-                val f = java.io.File("/data/misc/lspd/modules.list")
-                f.exists() && f.readText().contains(packageName)
-            } catch (_: Throwable) {
-                false
-            }
-        }
+    /**
+     * 激活状态检测：StatusProvider 在 HookEntry 于目标应用进程中运行时
+     * （即 LSPosed 已启用并加载模块）写入激活时间戳标记。
+     * 标记在 TTL 内视为已激活；模块被停用后不再上报，标记过期显示未激活。
+     */
+    private fun isModuleActivated(): Boolean = try {
+        val ts = java.io.File(filesDir, "activated_at").readText().trim().toLongOrNull()
+            ?: return false
+        System.currentTimeMillis() - ts <= ACTIVATION_TTL_MS
+    } catch (_: Throwable) {
+        false
+    }
+
+    companion object {
+        /** 激活标记有效期：目标应用 3 天未刷新则视为未激活。 */
+        private const val ACTIVATION_TTL_MS = 3 * 24 * 60 * 60 * 1000L
     }
 }

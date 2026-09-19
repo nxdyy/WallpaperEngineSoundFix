@@ -13,6 +13,11 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.WallpaperEngineSoundFix">
 
+        <provider
+            android:name=".StatusProvider"
+            android:authorities="io.wallpaper.soundfix.status"
+            android:exported="true" />
+
         <activity
             android:name=".MainActivity"
             android:configChanges="uiMode"

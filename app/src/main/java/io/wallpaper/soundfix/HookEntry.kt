@@ -12,6 +12,7 @@ import android.os.Looper
 import android.util.Log
 import io.github.libxposed.api.XposedModule
 import io.github.libxposed.api.XposedModuleInterface
+import java.lang.reflect.Method
 import java.util.Collections
 import java.util.WeakHashMap
 
@@ -27,6 +28,9 @@ import java.util.WeakHashMap
  *    libscenejni.so 的 AndroidMediaExtensions 音频函数全部是空壳 stub，
  *    声音从未创建。通过替换其导出虚表 _ZTV22AndroidMediaExtensions 的音频槽位，
  *    桥接到 Java SoundBridge（MediaPlayer 播放）。
+ *
+ * C. 暂停同步路径：原应用暂停壁纸时只停渲染，AudioRecorder/场景 Sound/场景视频元素
+ *    全部继续运行。hook updatePausedState 按 shouldBePaused() 同步启停所有音频源。
  */
 class HookEntry : XposedModule() {
 
@@ -37,7 +41,10 @@ class HookEntry : XposedModule() {
 
     override fun onPackageReady(param: XposedModuleInterface.PackageReadyParam) {
         super.onPackageReady(param)
-        if (!param.isFirstPackage || param.packageName !in TARGET_PACKAGES) return
+        if (param.packageName !in TARGET_PACKAGES) return
+        // 向模块自身上报激活状态（MainActivity 据此显示是否已激活）
+        reportActivation()
+        if (!param.isFirstPackage) return
         log(Log.INFO, TAG, "loaded into ${param.packageName}, installing hooks")
 
         // 初始音量系数
@@ -63,6 +70,19 @@ class HookEntry : XposedModule() {
             log(Log.WARN, TAG, "deoptimize callers failed (non-fatal)", t)
         }
 
+        // 防止 updatePausedState 被内联进调用方导致暂停同步 hook 不生效
+        try {
+            val engineClass = cl.loadClass("io.wallpaperengine.weclient.WEWallpaperService\$GLWallpaperEngine")
+            deoptimize(engineClass.getDeclaredMethod("onVisibilityChanged\$lambda\$12",
+                engineClass, Boolean::class.javaPrimitiveType))
+            deoptimize(engineClass.getDeclaredMethod("powerSavingReceiver\$lambda\$0",
+                engineClass, Boolean::class.javaPrimitiveType))
+            deoptimize(engineClass.getDeclaredMethod("loadWallpaper\$lambda\$9\$lambda\$8",
+                engineClass, cl.loadClass("io.wallpaperengine.weclient.WEWallpaperService")))
+        } catch (t: Throwable) {
+            log(Log.WARN, TAG, "deoptimize updatePausedState callers failed (non-fatal)", t)
+        }
+
         // 在设置界面注入音量滑条
         try {
             hookSettingsFragment(cl)
@@ -84,11 +104,16 @@ class HookEntry : XposedModule() {
             log(Log.ERROR, TAG, "hook SceneLib.initLibrary failed", t)
         }
 
-        // 路径 C：壁纸暂停时同步暂停 AudioRecorder（FFT 采集）
+        // 路径 C：壁纸暂停/恢复时同步 AudioRecorder、场景 Sound 与场景视频元素
         try {
-            hookAudioRecorderPause(cl)
+            hookSupportVideoPlayers(cl)
         } catch (t: Throwable) {
-            log(Log.ERROR, TAG, "hook AudioRecorder pause failed", t)
+            log(Log.ERROR, TAG, "hook SupportVideoPlayer failed", t)
+        }
+        try {
+            hookWallpaperPauseSync(cl)
+        } catch (t: Throwable) {
+            log(Log.ERROR, TAG, "hook wallpaper pause sync failed", t)
         }
 
         // 首次运行弹窗（仅壁纸引擎内，只弹一次）
@@ -107,18 +132,63 @@ class HookEntry : XposedModule() {
     }
 
     /**
-     * Hook GLWallpaperEngine.updatePausedState：壁纸暂停/恢复时同步控制 AudioRecorder。
+     * 跟踪 SupportVideoPlayer 实例（场景壁纸的视频元素）。
+     * 该类由 native 层经 JNI 创建，Java 层无调用点，只能 hook 构造函数收集。
+     * 原应用靠 setVolume(0,0) 全局静音掩盖了暂停未接线的问题；模块解除静音后，
+     * 壁纸暂停只停 GLSurfaceView 渲染，这些 MediaPlayer 会继续出声，需同步暂停。
+     */
+    private fun hookSupportVideoPlayers(cl: ClassLoader) {
+        val playerClass = cl.loadClass("io.wallpaperengine.weutil.SupportVideoPlayer")
+        videoIsPlayingMethod = playerClass.getDeclaredMethod("isPlaying")
+        videoPauseMethod = playerClass.getDeclaredMethod("pause")
+        videoPlayMethod = playerClass.getDeclaredMethod("play")
+        hook(playerClass.getDeclaredConstructor()).intercept { chain ->
+            val result = chain.proceed()
+            chain.thisObject?.let { trackedVideoPlayers.add(it) }
+            result
+        }
+    }
+
+    /** 暂停所有播放中的场景视频元素，并记录本次由模块暂停的实例（弱引用）。幂等。 */
+    private fun pauseTrackedVideos() {
+        for (p in trackedVideoPlayers.toTypedArray()) {
+            try {
+                val playing = videoIsPlayingMethod?.invoke(p) as? Boolean ?: continue
+                if (playing) {
+                    videoPauseMethod?.invoke(p)
+                    globallyPausedVideos.add(p)
+                }
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
+    /** 恢复仅由 pauseTrackedVideos 暂停的视频元素，不触碰引擎主动暂停的。幂等。 */
+    private fun resumeTrackedVideos() {
+        if (globallyPausedVideos.isEmpty()) return
+        for (p in globallyPausedVideos.toTypedArray()) {
+            try {
+                videoPlayMethod?.invoke(p)
+            } catch (_: Throwable) {
+            }
+            globallyPausedVideos.remove(p)
+        }
+    }
+
+    /**
+     * Hook GLWallpaperEngine.updatePausedState：壁纸暂停/恢复时同步所有音频源。
      *
      * 原应用 bug：updatePausedState 只暂停渲染（GLSurfaceView）和 ParallaxController，
-     * AudioRecorder（Visualizer FFT 采集）继续运行并持续向 native 层 sendAudioData，
-     * 浪费 CPU。此处按 shouldBePaused() 结果同步启停：
-     *   暂停（离开桌面/省电）→ stopAudioListener
-     *   恢复（回到桌面）     → startAudioListener
+     * 音频相关路径全部未接线。此处按 shouldBePaused() 结果同步启停：
+     *   暂停（离开桌面/省电）→ AudioRecorder.stopAudioListener + SoundBridge.pauseAll
+     *                          + 暂停场景视频元素
+     *   恢复（回到桌面）     → 对应恢复
      *
-     * 注意：audioRecorder 字段非 null 即表示当前壁纸启用了 audioprocessing，
-     * null 时（未启用或已卸载）无需任何操作；两个方法内部有状态检查，幂等安全。
+     * 注意：audioRecorder 仅在壁纸启用 audioprocessing（FFT 可视化）时非 null；
+     * 场景 Sound 和视频元素的同步与 audioprocessing 无关，对所有壁纸都必须执行。
+     * 各启停操作内部有状态检查，重复调用幂等安全。
      */
-    private fun hookAudioRecorderPause(cl: ClassLoader) {
+    private fun hookWallpaperPauseSync(cl: ClassLoader) {
         val engineClass = cl.loadClass("io.wallpaperengine.weclient.WEWallpaperService\$GLWallpaperEngine")
         val updateMethod = engineClass.getDeclaredMethod("updatePausedState")
         val shouldBePausedMethod = engineClass.getDeclaredMethod("shouldBePaused")
@@ -136,20 +206,29 @@ class HookEntry : XposedModule() {
             val result = chain.proceed()
             try {
                 val engine = chain.thisObject ?: return@intercept result
-                val recorder = recorderField.get(engine) ?: return@intercept result
                 val shouldPause = shouldBePausedMethod.invoke(engine) as Boolean
-                val running = stateField.get(recorder) as Boolean
-                if (shouldPause && running) {
-                    stopMethod.invoke(recorder)
+                // 1) AudioRecorder（FFT 采集），仅当壁纸启用了 audioprocessing
+                val recorder = recorderField.get(engine)
+                if (recorder != null) {
+                    val running = stateField.get(recorder) as Boolean
+                    if (shouldPause && running) {
+                        stopMethod.invoke(recorder)
+                    } else if (!shouldPause && !running) {
+                        startMethod.invoke(recorder)
+                    }
+                }
+                // 2) 场景 Sound（SoundBridge）与场景视频元素，所有壁纸类型都同步
+                if (shouldPause) {
                     SoundBridge.pauseAll()
-                    log(Log.INFO, TAG, "AudioRecorder + SoundBridge paused (not visible / power saving)")
-                } else if (!shouldPause && !running) {
-                    startMethod.invoke(recorder)
+                    pauseTrackedVideos()
+                    log(Log.INFO, TAG, "wallpaper paused: sounds & videos stopped")
+                } else {
                     SoundBridge.resumeAll()
-                    log(Log.INFO, TAG, "AudioRecorder + SoundBridge resumed (visible)")
+                    resumeTrackedVideos()
+                    log(Log.INFO, TAG, "wallpaper resumed: sounds & videos restarted")
                 }
             } catch (t: Throwable) {
-                log(Log.WARN, TAG, "sync AudioRecorder state failed", t)
+                log(Log.WARN, TAG, "sync pause state failed", t)
             }
             result
         }
@@ -248,8 +327,29 @@ class HookEntry : XposedModule() {
     }
 
     /**
-     * 版本更新检查：每次打开壁纸引擎时异步请求服务器，
-     * 若服务器版本号大于当前 versionCode 且未被用户忽略，则弹出更新提醒。
+     * 向模块自身的 StatusProvider 上报激活状态。
+     * 在目标应用进程中运行（说明模块已被 LSPosed 启用），Provider 会拉起
+     * 模块进程并写入时间戳标记；模块未启用时不会上报，标记过期后主页显示未激活。
+     * 异步执行，避免拉起模块进程阻塞目标应用主线程。
+     */
+    private fun reportActivation() {
+        Thread {
+            try {
+                val app = Class.forName("android.app.ActivityThread")
+                    .getDeclaredMethod("currentApplication").invoke(null) as? Context
+                    ?: return@Thread
+                app.contentResolver.call(
+                    Uri.parse("content://${StatusProvider.AUTHORITY}"), "report", null, null)
+                log(Log.INFO, TAG, "activation reported to module provider")
+            } catch (t: Throwable) {
+                log(Log.WARN, TAG, "report activation failed", t)
+            }
+        }.start()
+    }
+
+    /**
+     * 版本更新检查：每次打开壁纸引擎时异步请求服务器。
+     * 流程：version → log/logen → url → wever → must → 弹窗（一并展示模块与 WE 更新）。
      */
     private fun hookUpdateCheck(cl: ClassLoader) {
         val browseClass = cl.loadClass("io.wallpaperengine.weclient.BrowseActivity")
@@ -264,14 +364,47 @@ class HookEntry : XposedModule() {
                 val prefs = obtainPrefs() ?: return@intercept result
                 Thread {
                     try {
-                        val (serverVersion, changelog) = fetchUpdateInfo() ?: return@Thread
-                        val currentVersion = 3 // versionCode，与 build.gradle.kts 一致
+                        val currentVersion = 4 // versionCode，与 build.gradle.kts 一致
+                        val BASE = "https://project.nxdyy.cn/WallpaperEngineSoundFix/"
+
+                        // 1) 获取服务器模块版本，已安装 >= 服务器版本则不检查
+                        val serverVersion = httpGet(BASE + "version")?.toIntOrNull() ?: return@Thread
+                        if (serverVersion <= currentVersion) return@Thread
                         val ignoredVersion = prefs.getInt(ignoredKey, 0)
-                        if (serverVersion <= currentVersion || serverVersion <= ignoredVersion) return@Thread
-                        val updateUrl = httpGet("https://project.nxdyy.cn/WallpaperEngineSoundFix/url")
+                        if (serverVersion <= ignoredVersion) return@Thread
+
+                        // 2) 更新日志（按语言选择端点：简体中文用 /log，其他用 /logen）
+                        val isZhCN = activity.resources.configuration.locales[0].let {
+                            it.language == "zh" && it.country == "CN"
+                        }
+                        val changelog = httpGet(BASE + if (isZhCN) "log" else "logen") ?: ""
+
+                        // 3) 更新地址
+                        val updateUrl = httpGet(BASE + "url")
+
+                        // 4) Wallpaper Engine 版本检查
+                        var weOutdated = false
+                        try {
+                            val serverWeVer = httpGet(BASE + "wever")?.toIntOrNull()
+                            if (serverWeVer != null) {
+                                val pkgInfo = activity.packageManager.getPackageInfo(
+                                    "io.wallpaperengine.weclient", 0)
+                                val installedWeVer = pkgInfo.longVersionCode.toInt()
+                                weOutdated = installedWeVer < serverWeVer
+                            }
+                        } catch (_: Throwable) {}
+
+                        // 5) 必要/非必要更新标记（0 = 非必要，1 = 必要/默认）
+                        val mustStr = httpGet(BASE + "must")
+                        val nonEssential = mustStr == "0"
+
+                        // 6) 弹窗（集成模式下可能存在独立+内嵌两个模块实例重复 hook，按时间戳去重）
+                        if (!markUpdateDialogShown(prefs)) return@Thread
                         Handler(Looper.getMainLooper()).post {
                             try {
-                                showUpdateDialog(activity, serverVersion, changelog, updateUrl, prefs, ignoredKey)
+                                showUpdateDialog(
+                                    activity, serverVersion, changelog, updateUrl,
+                                    weOutdated, nonEssential, prefs, ignoredKey)
                             } catch (t: Throwable) {
                                 log(Log.WARN, TAG, "show update dialog failed", t)
                             }
@@ -298,13 +431,22 @@ class HookEntry : XposedModule() {
         null
     }
 
-    /** 获取服务器版本号和更新日志，失败返回 null。 */
-    private fun fetchUpdateInfo(): Pair<Int, String>? {
-        val versionStr = httpGet("https://project.nxdyy.cn/WallpaperEngineSoundFix/version") ?: return null
-        val version = versionStr.toIntOrNull() ?: return null
-        val changelog = httpGet("https://project.nxdyy.cn/WallpaperEngineSoundFix/log") ?: ""
-        return version to changelog
-    }
+    /**
+     * 更新弹窗去重标记。
+     * 集成模式（npatch）下同一进程可能同时加载独立模块与内嵌模块两个实例，
+     * 各自 hook 同一方法并异步弹窗。两实例共享同一应用 SharedPreferences，
+     * 用时间戳在去重窗口内只允许弹一次。
+     */
+    private fun markUpdateDialogShown(prefs: SharedPreferences): Boolean =
+        synchronized(prefs) {
+            val now = System.currentTimeMillis()
+            if (now - prefs.getLong(UPDATE_DIALOG_TS_KEY, 0L) < UPDATE_DIALOG_DEDUP_MS) {
+                false
+            } else {
+                prefs.edit().putLong(UPDATE_DIALOG_TS_KEY, now).apply()
+                true
+            }
+        }
 
     /** 根据设备语言获取更新弹窗 i18n 文本。 */
     private fun getUpdateI18N(ctx: Context): Map<String, String> {
@@ -316,6 +458,7 @@ class HookEntry : XposedModule() {
 
     private fun showUpdateDialog(
         ctx: Context, serverVersion: Int, changelog: String, updateUrl: String?,
+        weOutdated: Boolean, nonEssential: Boolean,
         prefs: SharedPreferences, ignoredKey: String
     ) {
         val i18n = getUpdateI18N(ctx)
@@ -327,6 +470,14 @@ class HookEntry : XposedModule() {
                 append(i18n["changelog_header"])
                 append("\n")
                 append(changelog)
+            }
+            if (weOutdated) {
+                append("\n\n")
+                append(i18n["we_outdated"])
+            }
+            if (nonEssential) {
+                append("\n\n")
+                append(i18n["non_essential"])
             }
         }
         AlertDialog.Builder(ctx)
@@ -542,6 +693,8 @@ class HookEntry : XposedModule() {
         private val TARGET_PACKAGES = setOf(TARGET_PACKAGE, "io.wallpaperengine.nxdyy")
         private const val PREF_KEY = "general_volume"
         private const val DEFAULT_VOLUME = 100
+        private const val UPDATE_DIALOG_TS_KEY = "we_soundfix_update_dialog_ts"
+        private const val UPDATE_DIALOG_DEDUP_MS = 30_000L
 
         /** 注入壁纸引擎设置的音量滑条标题和摘要，按设备语言匹配。 */
         private val PREF_I18N = mapOf(
@@ -582,7 +735,7 @@ class HookEntry : XposedModule() {
             "en"     to ("Wallpaper volume" to "Fix silent wallpapers: control video wallpaper volume"),
         )
 
-        /** 更新弹窗 i18n，keys: title, version, changelog_header, update, close, ignore */
+        /** 更新弹窗 i18n，keys: title, version, changelog_header, update, close, ignore, we_outdated, non_essential */
         private val UPDATE_I18N: Map<String, Map<String, String>> = mapOf(
             "zh" to mapOf(
                 "title" to "存在新版本！",
@@ -591,6 +744,8 @@ class HookEntry : XposedModule() {
                 "update" to "更新",
                 "close" to "关闭",
                 "ignore" to "忽略此版本",
+                "we_outdated" to "Wallpaper Engine 不是最新版本，建议同步更新",
+                "non_essential" to "非必要更新",
             ),
             "zh-rTW" to mapOf(
                 "title" to "存在新版本！",
@@ -599,6 +754,8 @@ class HookEntry : XposedModule() {
                 "update" to "更新",
                 "close" to "關閉",
                 "ignore" to "忽略此版本",
+                "we_outdated" to "Wallpaper Engine 不是最新版本，建議同步更新",
+                "non_essential" to "非必要更新",
             ),
             "en" to mapOf(
                 "title" to "New version available!",
@@ -607,6 +764,8 @@ class HookEntry : XposedModule() {
                 "update" to "Update",
                 "close" to "Close",
                 "ignore" to "Ignore this version",
+                "we_outdated" to "Wallpaper Engine is not up to date, update recommended",
+                "non_essential" to "Non-essential update",
             ),
             "ja" to mapOf(
                 "title" to "新しいバージョンがあります！",
@@ -615,6 +774,8 @@ class HookEntry : XposedModule() {
                 "update" to "更新",
                 "close" to "閉じる",
                 "ignore" to "このバージョンを無視",
+                "we_outdated" to "Wallpaper Engine が最新ではありません。更新を推奨します",
+                "non_essential" to "必須ではない更新",
             ),
             "ko" to mapOf(
                 "title" to "새 버전이 있습니다!",
@@ -623,6 +784,8 @@ class HookEntry : XposedModule() {
                 "update" to "업데이트",
                 "close" to "닫기",
                 "ignore" to "이 버전 무시",
+                "we_outdated" to "Wallpaper Engine이 최신 버전이 아닙니다. 업데이트 권장",
+                "non_essential" to "필수 업데이트 아님",
             ),
             "fr" to mapOf(
                 "title" to "Nouvelle version disponible !",
@@ -631,6 +794,8 @@ class HookEntry : XposedModule() {
                 "update" to "Mettre à jour",
                 "close" to "Fermer",
                 "ignore" to "Ignorer cette version",
+                "we_outdated" to "Wallpaper Engine n'est pas à jour, mise à jour recommandée",
+                "non_essential" to "Mise à jour non essentielle",
             ),
             "de" to mapOf(
                 "title" to "Neue Version verfügbar!",
@@ -639,6 +804,8 @@ class HookEntry : XposedModule() {
                 "update" to "Aktualisieren",
                 "close" to "Schließen",
                 "ignore" to "Diese Version ignorieren",
+                "we_outdated" to "Wallpaper Engine ist nicht aktuell, Aktualisierung empfohlen",
+                "non_essential" to "Nicht erforderliches Update",
             ),
             "es" to mapOf(
                 "title" to "¡Nueva versión disponible!",
@@ -647,6 +814,8 @@ class HookEntry : XposedModule() {
                 "update" to "Actualizar",
                 "close" to "Cerrar",
                 "ignore" to "Ignorar esta versión",
+                "we_outdated" to "Wallpaper Engine no está actualizado, se recomienda actualizar",
+                "non_essential" to "Actualización no esencial",
             ),
             "pt" to mapOf(
                 "title" to "Nova versão disponível!",
@@ -655,6 +824,8 @@ class HookEntry : XposedModule() {
                 "update" to "Atualizar",
                 "close" to "Fechar",
                 "ignore" to "Ignorar esta versão",
+                "we_outdated" to "Wallpaper Engine não está atualizado, atualização recomendada",
+                "non_essential" to "Atualização não essencial",
             ),
             "ru" to mapOf(
                 "title" to "Доступна новая версия!",
@@ -663,6 +834,8 @@ class HookEntry : XposedModule() {
                 "update" to "Обновить",
                 "close" to "Закрыть",
                 "ignore" to "Игнорировать эту версию",
+                "we_outdated" to "Wallpaper Engine не обновлён, рекомендуется обновить",
+                "non_essential" to "Необязательное обновление",
             ),
             "it" to mapOf(
                 "title" to "Nuova versione disponibile!",
@@ -671,6 +844,8 @@ class HookEntry : XposedModule() {
                 "update" to "Aggiorna",
                 "close" to "Chiudi",
                 "ignore" to "Ignora questa versione",
+                "we_outdated" to "Wallpaper Engine non è aggiornato, aggiornamento consigliato",
+                "non_essential" to "Aggiornamento non essenziale",
             ),
             "pl" to mapOf(
                 "title" to "Dostępna nowa wersja!",
@@ -679,6 +854,8 @@ class HookEntry : XposedModule() {
                 "update" to "Aktualizuj",
                 "close" to "Zamknij",
                 "ignore" to "Zignoruj tę wersję",
+                "we_outdated" to "Wallpaper Engine nie jest aktualny, zalecana aktualizacja",
+                "non_essential" to "Aktualizacja nie jest wymagana",
             ),
             "nl" to mapOf(
                 "title" to "Nieuwe versie beschikbaar!",
@@ -687,6 +864,8 @@ class HookEntry : XposedModule() {
                 "update" to "Bijwerken",
                 "close" to "Sluiten",
                 "ignore" to "Negeer deze versie",
+                "we_outdated" to "Wallpaper Engine is niet actueel, update aanbevolen",
+                "non_essential" to "Niet-essentiële update",
             ),
             "sv" to mapOf(
                 "title" to "Ny version tillgänglig!",
@@ -695,6 +874,8 @@ class HookEntry : XposedModule() {
                 "update" to "Uppdatera",
                 "close" to "Stäng",
                 "ignore" to "Ignorera denna version",
+                "we_outdated" to "Wallpaper Engine är inte uppdaterad, uppdatering rekommenderas",
+                "non_essential" to "Icke-väsentlig uppdatering",
             ),
             "da" to mapOf(
                 "title" to "Ny version tilgængelig!",
@@ -703,6 +884,8 @@ class HookEntry : XposedModule() {
                 "update" to "Opdater",
                 "close" to "Luk",
                 "ignore" to "Ignorer denne version",
+                "we_outdated" to "Wallpaper Engine er ikke opdateret, opdatering anbefales",
+                "non_essential" to "Ikke-væsentlig opdatering",
             ),
             "nb" to mapOf(
                 "title" to "Ny versjon tilgjengelig!",
@@ -711,6 +894,8 @@ class HookEntry : XposedModule() {
                 "update" to "Oppdater",
                 "close" to "Lukk",
                 "ignore" to "Ignorer denne versjonen",
+                "we_outdated" to "Wallpaper Engine er ikke oppdatert, oppdatering anbefales",
+                "non_essential" to "Ikke-nødvendig oppdatering",
             ),
             "fi" to mapOf(
                 "title" to "Uusi versio saatavilla!",
@@ -719,6 +904,8 @@ class HookEntry : XposedModule() {
                 "update" to "Päivitä",
                 "close" to "Sulje",
                 "ignore" to "Ohita tämä versio",
+                "we_outdated" to "Wallpaper Engine ei ole ajan tasalla, päivitys suositellaan",
+                "non_essential" to "Ei-välttämätön päivitys",
             ),
             "cs" to mapOf(
                 "title" to "K dispozici nová verze!",
@@ -727,6 +914,8 @@ class HookEntry : XposedModule() {
                 "update" to "Aktualizovat",
                 "close" to "Zavřít",
                 "ignore" to "Ignorovat tuto verzi",
+                "we_outdated" to "Wallpaper Engine není aktuální, doporučujeme aktualizovat",
+                "non_essential" to "Nevyžadovaná aktualizace",
             ),
             "sk" to mapOf(
                 "title" to "K dispozícii nová verzia!",
@@ -735,6 +924,8 @@ class HookEntry : XposedModule() {
                 "update" to "Aktualizovať",
                 "close" to "Zavrieť",
                 "ignore" to "Ignorovať túto verziu",
+                "we_outdated" to "Wallpaper Engine nie je aktuálny, odporúča sa aktualizácia",
+                "non_essential" to "Nepovinná aktualizácia",
             ),
             "hu" to mapOf(
                 "title" to "Új verzió érhető el!",
@@ -743,6 +934,8 @@ class HookEntry : XposedModule() {
                 "update" to "Frissítés",
                 "close" to "Bezárás",
                 "ignore" to "Verzió figyelmen kívül hagyása",
+                "we_outdated" to "A Wallpaper Engine nem naprakész, frissítés ajánlott",
+                "non_essential" to "Nem kötelező frissítés",
             ),
             "ro" to mapOf(
                 "title" to "Versiune nouă disponibilă!",
@@ -751,6 +944,8 @@ class HookEntry : XposedModule() {
                 "update" to "Actualizare",
                 "close" to "Închide",
                 "ignore" to "Ignoră această versiune",
+                "we_outdated" to "Wallpaper Engine nu este la zi, actualizare recomandată",
+                "non_essential" to "Actualizare neesențială",
             ),
             "tr" to mapOf(
                 "title" to "Yeni sürüm mevcut!",
@@ -759,6 +954,8 @@ class HookEntry : XposedModule() {
                 "update" to "Güncelle",
                 "close" to "Kapat",
                 "ignore" to "Bu sürümü yoksay",
+                "we_outdated" to "Wallpaper Engine güncel değil, güncelleme önerilir",
+                "non_essential" to "Zorunlu olmayan güncelleme",
             ),
             "el" to mapOf(
                 "title" to "Νέα έκδοση διαθέσιμη!",
@@ -767,6 +964,8 @@ class HookEntry : XposedModule() {
                 "update" to "Ενημέρωση",
                 "close" to "Κλείσιμο",
                 "ignore" to "Αγνόηση αυτής της έκδοσης",
+                "we_outdated" to "Το Wallpaper Engine δεν είναι ενημερωμένο, συνιστάται ενημέρωση",
+                "non_essential" to "Μη απαραίτητη ενημέρωση",
             ),
             "bg" to mapOf(
                 "title" to "Налична е нова версия!",
@@ -775,6 +974,8 @@ class HookEntry : XposedModule() {
                 "update" to "Актуализиране",
                 "close" to "Затвори",
                 "ignore" to "Игнорирай тази версия",
+                "we_outdated" to "Wallpaper Engine не е актуализиран, препоръчва се актуализация",
+                "non_essential" to "Незадължителна актуализация",
             ),
             "uk" to mapOf(
                 "title" to "Доступна нова версія!",
@@ -783,6 +984,8 @@ class HookEntry : XposedModule() {
                 "update" to "Оновити",
                 "close" to "Закрити",
                 "ignore" to "Ігнорувати цю версію",
+                "we_outdated" to "Wallpaper Engine не оновлено, рекомендується оновити",
+                "non_essential" to "Необов'язкове оновлення",
             ),
             "ar" to mapOf(
                 "title" to "يوجد إصدار جديد!",
@@ -791,6 +994,8 @@ class HookEntry : XposedModule() {
                 "update" to "تحديث",
                 "close" to "إغلاق",
                 "ignore" to "تجاهل هذا الإصدار",
+                "we_outdated" to "Wallpaper Engine غير محدّث، يُوصى بالتحديث",
+                "non_essential" to "تحديث غير ضروري",
             ),
             "he" to mapOf(
                 "title" to "גרסה חדשה זמינה!",
@@ -799,6 +1004,8 @@ class HookEntry : XposedModule() {
                 "update" to "עדכון",
                 "close" to "סגור",
                 "ignore" to "התעלם מגרסה זו",
+                "we_outdated" to "Wallpaper Engine אינו מעודכן, מומלץ לעדכן",
+                "non_essential" to "עדכון לא הכרחי",
             ),
             "fa" to mapOf(
                 "title" to "نسخه جدید موجود است!",
@@ -807,6 +1014,8 @@ class HookEntry : XposedModule() {
                 "update" to "بروزرسانی",
                 "close" to "بستن",
                 "ignore" to "نادیده گرفتن این نسخه",
+                "we_outdated" to "Wallpaper Engine به‌روز نیست، به‌روزرسانی توصیه می‌شود",
+                "non_essential" to "به‌روزرسانی غیرضروری",
             ),
             "id" to mapOf(
                 "title" to "Versi baru tersedia!",
@@ -815,6 +1024,8 @@ class HookEntry : XposedModule() {
                 "update" to "Perbarui",
                 "close" to "Tutup",
                 "ignore" to "Abaikan versi ini",
+                "we_outdated" to "Wallpaper Engine belum diperbarui, disarankan untuk memperbarui",
+                "non_essential" to "Pembaruan tidak penting",
             ),
             "th" to mapOf(
                 "title" to "มีเวอร์ชันใหม่!",
@@ -823,6 +1034,8 @@ class HookEntry : XposedModule() {
                 "update" to "อัปเดต",
                 "close" to "ปิด",
                 "ignore" to "เพิกเฉยเวอร์ชันนี้",
+                "we_outdated" to "Wallpaper Engine ไม่ใช่เวอร์ชันล่าสุด แนะนำให้อัปเดต",
+                "non_essential" to "การอัปเดตที่ไม่จำเป็น",
             ),
             "vi" to mapOf(
                 "title" to "Có phiên bản mới!",
@@ -831,6 +1044,8 @@ class HookEntry : XposedModule() {
                 "update" to "Cập nhật",
                 "close" to "Đóng",
                 "ignore" to "Bỏ qua phiên bản này",
+                "we_outdated" to "Wallpaper Engine chưa cập nhật, khuyến nghị cập nhật",
+                "non_essential" to "Cập nhật không bắt buộc",
             ),
             "eu" to mapOf(
                 "title" to "Bertsu berria eskuragarri!",
@@ -839,6 +1054,8 @@ class HookEntry : XposedModule() {
                 "update" to "Eguneratu",
                 "close" to "Itxi",
                 "ignore" to "Ezikusi bertsio hau",
+                "we_outdated" to "Wallpaper Engine ez dago eguneratuta, eguneratzea gomendatzen da",
+                "non_essential" to "Ez-beharrezko eguneraketa",
             ),
             "sl" to mapOf(
                 "title" to "Na voljo je nova različica!",
@@ -847,6 +1064,8 @@ class HookEntry : XposedModule() {
                 "update" to "Posodobi",
                 "close" to "Zapri",
                 "ignore" to "Prezri to različico",
+                "we_outdated" to "Wallpaper Engine ni posodobljen, priporočljivo je posodobiti",
+                "non_essential" to "Nenujna posodobitev",
             ),
             "lt" to mapOf(
                 "title" to "Yra nauja versija!",
@@ -855,6 +1074,8 @@ class HookEntry : XposedModule() {
                 "update" to "Atnaujinti",
                 "close" to "Uždaryti",
                 "ignore" to "Ignoruoti šią versiją",
+                "we_outdated" to "Wallpaper Engine nėra naujausios versijos, rekomenduojama atnaujinti",
+                "non_essential" to "Nebūtinas atnaujinimas",
             ),
             "be" to mapOf(
                 "title" to "Даступна новая версія!",
@@ -863,6 +1084,8 @@ class HookEntry : XposedModule() {
                 "update" to "Абнавіць",
                 "close" to "Закрыць",
                 "ignore" to "Ігнараваць гэтую версію",
+                "we_outdated" to "Wallpaper Engine не абноўлены, рэкамендуецца абнавіць",
+                "non_essential" to "Неабавязковае абнаўленне",
             ),
         )
 
@@ -873,6 +1096,19 @@ class HookEntry : XposedModule() {
         /** 被模块管理音量的 MediaPlayer 实例（弱引用，避免泄漏）。 */
         private val tracked: MutableSet<MediaPlayer> =
             Collections.synchronizedSet(Collections.newSetFromMap(WeakHashMap()))
+
+        /** 场景壁纸视频元素（SupportVideoPlayer）实例，由 native 经 JNI 创建（弱引用）。 */
+        private val trackedVideoPlayers: MutableSet<Any> =
+            Collections.synchronizedSet(Collections.newSetFromMap(WeakHashMap()))
+
+        /** 壁纸暂停时由模块暂停的视频元素，恢复时仅重启这些（弱引用）。 */
+        private val globallyPausedVideos: MutableSet<Any> =
+            Collections.synchronizedSet(Collections.newSetFromMap(WeakHashMap()))
+
+        /** SupportVideoPlayer 反射方法缓存（hookSupportVideoPlayers 中初始化）。 */
+        private var videoIsPlayingMethod: Method? = null
+        private var videoPauseMethod: Method? = null
+        private var videoPlayMethod: Method? = null
 
         @Volatile
         private var prefs: SharedPreferences? = null

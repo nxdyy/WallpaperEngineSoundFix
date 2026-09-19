@@ -20,7 +20,10 @@ object SoundBridge {
     private const val TAG = "WESoundFix"
 
     private val players = ConcurrentHashMap<Long, MediaPlayer>()
+    /** 引擎（场景逻辑）主动 Pause 的声音，resumeAll 不得触碰。 */
     private val pausedIds = ConcurrentHashMap<Long, Boolean>()
+    /** 壁纸整体暂停（pauseAll）暂停的声音，仅由 resumeAll 恢复。 */
+    private val globalPausedIds: MutableSet<Long> = ConcurrentHashMap.newKeySet()
     private val nextId = AtomicLong(1)
 
     /** 判断 MediaPlayer 是否由本桥创建（供 HookEntry 的 setVolume hook 排除，避免误拦截）。 */
@@ -51,9 +54,10 @@ object SoundBridge {
         0L
     }
 
-    /** native: Play。 */
+    /** native: Play。清除两类暂停标记。 */
     fun play(id: Long) {
         pausedIds.remove(id)
+        globalPausedIds.remove(id)
         players[id]?.takeIf { !it.isPlaying }?.start()
     }
 
@@ -68,6 +72,7 @@ object SoundBridge {
     /** native: Stop。用 pause+seekTo(0) 实现，规避 MediaPlayer stop 后需重新 prepare 的状态机。 */
     fun stop(id: Long) {
         pausedIds.remove(id)
+        globalPausedIds.remove(id)
         players[id]?.let {
             if (it.isPlaying) it.pause()
             it.seekTo(0)
@@ -100,6 +105,7 @@ object SoundBridge {
     fun destroy(id: Long) {
         players.remove(id)?.let {
             pausedIds.remove(id)
+            globalPausedIds.remove(id)
             try {
                 it.release()
             } catch (_: Throwable) {
@@ -109,29 +115,30 @@ object SoundBridge {
 
     /**
      * 壁纸整体暂停（离开桌面/省电）：暂停所有播放中的声音。
-     * native 层 Main::SetPaused / Sound::PauseSounds 从未被调用（原应用未接线），
-     * 由 HookEntry.updatePausedState hook 在 Java 层驱动。
+     * 标记记入 globalPausedIds（与引擎主动 Pause 的 pausedIds 互不干扰），
+     * 恢复时只重启这些声音，不触碰引擎自己暂停的声音。
      */
     fun pauseAll() {
         for ((id, mp) in players) {
             try {
                 if (mp.isPlaying) {
                     mp.pause()
-                    pausedIds[id] = true
+                    globalPausedIds.add(id)
                 }
             } catch (_: Throwable) {
             }
         }
     }
 
-    /** 壁纸整体恢复（回到桌面）：恢复被 pauseAll 暂停的声音。 */
+    /** 壁纸整体恢复（回到桌面）：仅恢复被 pauseAll 暂停的声音。幂等。 */
     fun resumeAll() {
-        for (id in pausedIds.keys.toList()) {
+        if (globalPausedIds.isEmpty()) return
+        for (id in globalPausedIds.toList()) {
             try {
                 players[id]?.start()
             } catch (_: Throwable) {
             }
         }
-        pausedIds.clear()
+        globalPausedIds.clear()
     }
 }

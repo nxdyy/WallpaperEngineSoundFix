@@ -143,6 +143,33 @@ class HookEntry : XposedModule() {
         } catch (t: Throwable) {
             log(Log.ERROR, TAG, "hook wallpaper type badge failed", t)
         }
+
+        // mpkg 场景壁纸传输/导入完成后的声音风险提示
+        try {
+            hookMpkgImportWarning(cl)
+        } catch (t: Throwable) {
+            log(Log.ERROR, TAG, "hook mpkg import warning failed", t)
+        }
+    }
+
+    /**
+     * mpkg 场景壁纸校验：
+     * 传输完成和本地导入完成最终都会调用 WallpaperInfoSparse.setFilePath，
+     * 在此之后检查扩展名、场景类型与创意工坊信息并弹出提示。
+     */
+    private fun hookMpkgImportWarning(cl: ClassLoader) {
+        val infoClass = cl.loadClass("io.wallpaperengine.weutil.WallpaperInfoSparse")
+        val m = infoClass.getDeclaredMethod("setFilePath", String::class.java)
+        hook(m).intercept { chain ->
+            val result = chain.proceed()
+            try {
+                SceneImportWarning.onFilePathSet(chain.thisObject, chain.getArg(0) as? String)
+            } catch (t: Throwable) {
+                log(Log.WARN, TAG, "mpkg import check failed", t)
+            }
+            result
+        }
+        log(Log.INFO, TAG, "mpkg import warning hook installed")
     }
 
     /**

@@ -61,6 +61,10 @@ internal object DownloadProgressUi {
     private var renderScheduled = false
     private var lastRenderTime = 0L
 
+    /** 当前绑定的 BrowseActivity（供其他模块复用，如弹窗）。 */
+    fun currentActivity(): android.app.Activity? =
+        activityRef?.get() as? android.app.Activity
+
     /** 绑定当前 BrowseActivity（onCreate 之后视图已就绪）。 */
     fun attach(activity: Any?) {
         if (activity == null) return

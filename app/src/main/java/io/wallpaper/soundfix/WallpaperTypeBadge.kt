@@ -37,6 +37,7 @@ internal object WallpaperTypeBadge {
 
     private const val TAG = "WESoundFix"
     private const val PREFS_NAME = "we_soundfix_wallpaper_types"
+    private const val WORKSHOP_PREFS_NAME = "we_soundfix_workshop_ids"
     private const val BADGE_TAG = "we_soundfix_type_badge"
 
     private const val TYPE_VIDEO = "video"
@@ -233,6 +234,70 @@ internal object WallpaperTypeBadge {
             .invoke(lib, path) as? String
     } catch (_: Throwable) {
         null
+    }
+
+    // ------------------------------------------------ 供 mpkg 导入校验使用
+
+    /** 应用原生判定类型，返回 "Scene"/"Video"/null。 */
+    fun nativeWallpaperType(path: String): String? = nativeType(path)
+
+    /**
+     * 分析创意工坊 ID 并缓存：
+     * 1) project.json 的 workshopid
+     * 2) project.json 的 workshopurl 中解析
+     * 3) 纯数字文件名（PC 传输时以工坊 ID 命名）
+     */
+    fun workshopId(path: String): String? {
+        if (path.isBlank()) return null
+        val ctx = appContext() ?: return null
+        readWorkshopCache(ctx, path)?.let { return it }
+
+        var id: String? = null
+        val lib = sceneLibRef?.get()
+        if (lib != null) {
+            id = extractWorkshopId(projectString(lib, path, "workshopid"))
+                ?: extractWorkshopId(projectString(lib, path, "workshopurl"))
+        }
+        if (id == null) {
+            val base = path.substringAfterLast('/').substringBeforeLast('.')
+            if (base.length in 5..20 && base.all { it.isDigit() }) id = base
+        }
+        if (id != null) writeWorkshopCache(ctx, path, id)
+        return id
+    }
+
+    private fun projectString(lib: Any, path: String, key: String): String? = try {
+        lib.javaClass.getMethod(
+            "getWallpaperProjectString", String::class.java, String::class.java)
+            .invoke(lib, path, key) as? String
+    } catch (_: Throwable) {
+        null
+    }
+
+    private fun extractWorkshopId(raw: String?): String? {
+        val value = raw?.trim().orEmpty()
+        if (value.isEmpty()) return null
+        if (value.length in 5..20 && value.all { it.isDigit() }) return value
+
+        val normalized = value.replace('\\', '/').replace("id=", "/")
+        val candidate = normalized.split('/').lastOrNull { it.isNotBlank() }?.trim() ?: return null
+        return if (candidate.length in 5..20 && candidate.all { it.isDigit() }) candidate else null
+    }
+
+    private fun readWorkshopCache(ctx: Context, path: String): String? = try {
+        ctx.getSharedPreferences(WORKSHOP_PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(path, null)
+    } catch (_: Throwable) {
+        null
+    }
+
+    private fun writeWorkshopCache(ctx: Context, path: String, id: String) {
+        try {
+            ctx.getSharedPreferences(WORKSHOP_PREFS_NAME, Context.MODE_PRIVATE)
+                .edit().putString(path, id).apply()
+        } catch (t: Throwable) {
+            log("write workshop cache failed", t)
+        }
     }
 
     private fun resolveFile(ctx: Context, path: String): File? {

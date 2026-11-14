@@ -129,6 +129,129 @@ class HookEntry : XposedModule() {
         } catch (t: Throwable) {
             log(Log.ERROR, TAG, "hook update check failed", t)
         }
+
+        // 连接状态条显示下载进度（壁纸从电脑传输到手机时）
+        try {
+            hookDownloadProgress(cl)
+        } catch (t: Throwable) {
+            log(Log.ERROR, TAG, "hook download progress failed", t)
+        }
+
+        // 壁纸类型角标（传输完成后自动判定并缓存）
+        try {
+            hookWallpaperTypeBadges(cl)
+        } catch (t: Throwable) {
+            log(Log.ERROR, TAG, "hook wallpaper type badge failed", t)
+        }
+    }
+
+    /**
+     * 壁纸类型角标：
+     * - 列表适配器创建时保存 SceneLib 并后台扫描未判定类型的壁纸
+     * - 列表项绑定时在封面左上角显示类型
+     */
+    private fun hookWallpaperTypeBadges(cl: ClassLoader) {
+        val adapterClass = cl.loadClass("io.wallpaperengine.weclient.ui.browse.BrowseRecyclerViewAdapter")
+        val sceneLibClass = cl.loadClass("io.wallpaperengine.wrapper.SceneLib")
+
+        val ctor = adapterClass.getDeclaredConstructor(
+            android.app.Activity::class.java, sceneLibClass, java.util.List::class.java)
+        hook(ctor).intercept { chain ->
+            val result = chain.proceed()
+            try {
+                WallpaperTypeBadge.onAdapterCreated(chain.thisObject, chain.getArg(1), chain.getArg(2))
+            } catch (t: Throwable) {
+                log(Log.WARN, TAG, "scan wallpaper types failed", t)
+            }
+            result
+        }
+
+        val viewHolderClass =
+            cl.loadClass("io.wallpaperengine.weclient.ui.browse.BrowseRecyclerViewAdapter\$ViewHolder")
+        val bind = adapterClass.getDeclaredMethod(
+            "onBindViewHolder", viewHolderClass, Int::class.javaPrimitiveType)
+        hook(bind).intercept { chain ->
+            val result = chain.proceed()
+            try {
+                WallpaperTypeBadge.onBind(chain.thisObject, chain.getArg(0), chain.getArg(1) as Int)
+            } catch (t: Throwable) {
+                log(Log.WARN, TAG, "bind wallpaper type badge failed", t)
+            }
+            result
+        }
+
+        log(Log.INFO, TAG, "wallpaper type badge hook installed")
+    }
+
+    /**
+     * 将 BrowseActivity 顶部的连接状态条改为下载进度显示：
+     * 文本替换为“正在从…下载… / 标题 / 进度 / 百分比 | 速度”，
+     * 背景绿色条按下载比例填充。
+     *
+     * 事件来源 TransferService.updateNotification(DownloadInfo)，该方法在主线程
+     * 被调用，覆盖 transmissionStart / transmissionContinue / transmissionCancel。
+     */
+    private fun hookDownloadProgress(cl: ClassLoader) {
+        val browseClass = cl.loadClass("io.wallpaperengine.weclient.BrowseActivity")
+
+        // 捕获 BrowseActivity 实例与状态条视图
+        val onCreate = browseClass.getDeclaredMethod("onCreate", Bundle::class.java)
+        hook(onCreate).intercept { chain ->
+            val result = chain.proceed()
+            try {
+                DownloadProgressUi.attach(chain.thisObject)
+            } catch (t: Throwable) {
+                log(Log.WARN, TAG, "attach download progress ui failed", t)
+            }
+            result
+        }
+
+        // 原应用刷新连接状态后重新覆盖为进度显示
+        val showInfo = browseClass.getDeclaredMethod("showConnectionInfo")
+        hook(showInfo).intercept { chain ->
+            val result = chain.proceed()
+            try {
+                DownloadProgressUi.onConnectionInfoShown(chain.thisObject)
+            } catch (t: Throwable) {
+                log(Log.WARN, TAG, "refresh download progress ui failed", t)
+            }
+            result
+        }
+
+        // 回到前台时若下载仍在进行，重新应用进度显示
+        val onResume = browseClass.getDeclaredMethod("onResume")
+        hook(onResume).intercept { chain ->
+            val result = chain.proceed()
+            try {
+                DownloadProgressUi.onConnectionInfoShown(chain.thisObject)
+            } catch (t: Throwable) {
+                log(Log.WARN, TAG, "resume download progress ui failed", t)
+            }
+            result
+        }
+
+        // 传输事件
+        val downloadInfoClass = cl.loadClass("io.wallpaperengine.wedata.DownloadInfo")
+        val transferClass = cl.loadClass("io.wallpaperengine.weclient.TransferService")
+        val updateNotification =
+            transferClass.getDeclaredMethod("updateNotification", downloadInfoClass)
+        hook(updateNotification).intercept { chain ->
+            val result = chain.proceed()
+            try {
+                DownloadProgressUi.onDownloadInfo(chain.getArg(0))
+            } catch (t: Throwable) {
+                log(Log.WARN, TAG, "update download progress failed", t)
+            }
+            try {
+                // 文件接收完成时判定类型并写入缓存
+                WallpaperTypeBadge.onTransferInfo(chain.getArg(0))
+            } catch (t: Throwable) {
+                log(Log.WARN, TAG, "detect wallpaper type failed", t)
+            }
+            result
+        }
+
+        log(Log.INFO, TAG, "download progress hook installed")
     }
 
     /**

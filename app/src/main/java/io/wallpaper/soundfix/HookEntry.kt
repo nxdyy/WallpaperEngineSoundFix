@@ -150,6 +150,39 @@ class HookEntry : XposedModule() {
         } catch (t: Throwable) {
             log(Log.ERROR, TAG, "hook mpkg import warning failed", t)
         }
+
+        // 壁纸自定义页面文案汉化
+        try {
+            hookPropertyLocalization(cl)
+        } catch (t: Throwable) {
+            log(Log.ERROR, TAG, "hook property localization failed", t)
+        }
+    }
+
+    /**
+     * 壁纸自定义页面汉化：
+     * 所有属性标题和下拉选项都经过 WallpaperProperties.localizeText，
+     * 在此把第三方壁纸直接写死的英文（Flip、Audio recording 等）
+     * 以及 zh-chs 缺失词条替换为中文。
+     */
+    private fun hookPropertyLocalization(cl: ClassLoader) {
+        val cls = cl.loadClass("io.wallpaperengine.weclient.WallpaperProperties")
+        val m = cls.getDeclaredMethod("localizeText", String::class.java)
+        hook(m).intercept { chain ->
+            val result = chain.proceed()
+            try {
+                PropertyLocalization.translate(chain.getArg(0) as? String, result as? String ?: "")
+            } catch (t: Throwable) {
+                log(Log.WARN, TAG, "localize property text failed", t)
+                result
+            }
+        }
+        try {
+            PropertyLocalization.preload()
+        } catch (t: Throwable) {
+            log(Log.WARN, TAG, "preload property localizations failed", t)
+        }
+        log(Log.INFO, TAG, "property localization hook installed")
     }
 
     /**

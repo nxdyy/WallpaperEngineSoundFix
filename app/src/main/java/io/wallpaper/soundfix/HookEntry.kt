@@ -538,7 +538,6 @@ class HookEntry : XposedModule() {
         val browseClass = cl.loadClass("io.wallpaperengine.weclient.BrowseActivity")
         val onCreateMethod = browseClass.getDeclaredMethod("onCreate", Bundle::class.java)
             .apply { isAccessible = true }
-        val ignoredKey = "we_soundfix_update_ignored_version"
 
         hook(onCreateMethod).intercept { chain ->
             val result = chain.proceed()
@@ -547,38 +546,37 @@ class HookEntry : XposedModule() {
                 val prefs = obtainPrefs() ?: return@intercept result
                 Thread {
                     try {
-                        val currentVersion = 4 // versionCode，与 build.gradle.kts 一致
-                        val BASE = "https://project.nxdyy.cn/WallpaperEngineSoundFix/"
+                        val currentVersion = currentModuleVersion()
 
                         // 1) 获取服务器模块版本，已安装 >= 服务器版本则不检查
-                        val serverVersion = httpGet(BASE + "version")?.toIntOrNull() ?: return@Thread
+                        val serverVersion = httpGet(API_BASE + "version")?.toIntOrNull() ?: return@Thread
                         if (serverVersion <= currentVersion) return@Thread
-                        val ignoredVersion = prefs.getInt(ignoredKey, 0)
+                        val ignoredVersion = prefs.getInt(UPDATE_IGNORED_KEY, 0)
                         if (serverVersion <= ignoredVersion) return@Thread
 
                         // 2) 更新日志（按语言选择端点：简体中文用 /log，其他用 /logen）
                         val isZhCN = activity.resources.configuration.locales[0].let {
                             it.language == "zh" && it.country == "CN"
                         }
-                        val changelog = httpGet(BASE + if (isZhCN) "log" else "logen") ?: ""
+                        val changelog = httpGet(API_BASE + if (isZhCN) "log" else "logen") ?: ""
 
                         // 3) 更新地址
-                        val updateUrl = httpGet(BASE + "url")
+                        val updateUrl = httpGet(API_BASE + "url")
 
                         // 4) Wallpaper Engine 版本检查
                         var weOutdated = false
                         try {
-                            val serverWeVer = httpGet(BASE + "wever")?.toIntOrNull()
+                            val serverWeVer = httpGet(API_BASE + "wever")?.toIntOrNull()
                             if (serverWeVer != null) {
                                 val pkgInfo = activity.packageManager.getPackageInfo(
-                                    "io.wallpaperengine.weclient", 0)
+                                    activity.packageName, 0)
                                 val installedWeVer = pkgInfo.longVersionCode.toInt()
                                 weOutdated = installedWeVer < serverWeVer
                             }
                         } catch (_: Throwable) {}
 
                         // 5) 必要/非必要更新标记（0 = 非必要，1 = 必要/默认）
-                        val mustStr = httpGet(BASE + "must")
+                        val mustStr = httpGet(API_BASE + "must")
                         val nonEssential = mustStr == "0"
 
                         // 6) 弹窗（集成模式下可能存在独立+内嵌两个模块实例重复 hook，按时间戳去重）
@@ -587,7 +585,7 @@ class HookEntry : XposedModule() {
                             try {
                                 showUpdateDialog(
                                     activity, serverVersion, changelog, updateUrl,
-                                    weOutdated, nonEssential, prefs, ignoredKey)
+                                    weOutdated, nonEssential, prefs, UPDATE_IGNORED_KEY)
                             } catch (t: Throwable) {
                                 log(Log.WARN, TAG, "show update dialog failed", t)
                             }
@@ -794,39 +792,198 @@ class HookEntry : XposedModule() {
         }
     }
 
-    /** 程序化创建 SeekBarPreference 并加入第一个分类（General）。 */
+    /** 程序化创建 SeekBarPreference 与更新检查入口，加入第一个分类（General）。 */
     private fun injectVolumePreference(fragment: Any?, cl: ClassLoader) {
         if (fragment == null) return
-        // 防止重复注入
-        val findPreference = fragment.javaClass.getMethod("findPreference", CharSequence::class.java)
-        if (findPreference.invoke(fragment, PREF_KEY) != null) return
 
+        val findPreference = fragment.javaClass.getMethod("findPreference", CharSequence::class.java)
         val screen = fragment.javaClass.getMethod("getPreferenceScreen").invoke(fragment) ?: return
         val count = screen.javaClass.getMethod("getPreferenceCount").invoke(screen) as Int
         if (count < 1) return
         val generalCategory = screen.javaClass.getMethod("getPreference", Int::class.javaPrimitiveType).invoke(screen, 0) ?: return
+        val prefBaseClass = cl.loadClass("androidx.preference.Preference")
 
         val context = fragment.javaClass.getMethod("requireContext").invoke(fragment) as Context
-        val prefClass = cl.loadClass("androidx.preference.SeekBarPreference")
+
+        // 音量滑条
+        if (findPreference.invoke(fragment, PREF_KEY) == null) {
+            val prefClass = cl.loadClass("androidx.preference.SeekBarPreference")
+            val pref = prefClass.getConstructor(Context::class.java).newInstance(context)
+
+            val lang = context.resources.configuration.locales[0].language
+            val region = context.resources.configuration.locales[0].country
+            val key = if (lang == "zh" && region == "TW") "zh-rTW" else lang
+            val (title, summary) = PREF_I18N[key] ?: PREF_I18N["en"]!!
+
+            pref.javaClass.getMethod("setKey", String::class.java).invoke(pref, PREF_KEY)
+            pref.javaClass.getMethod("setTitle", CharSequence::class.java).invoke(pref, title)
+            pref.javaClass.getMethod("setSummary", CharSequence::class.java).invoke(pref, summary)
+            pref.javaClass.getMethod("setIconSpaceReserved", Boolean::class.javaPrimitiveType).invoke(pref, false)
+            pref.javaClass.getMethod("setMin", Int::class.javaPrimitiveType).invoke(pref, 0)
+            pref.javaClass.getMethod("setMax", Int::class.javaPrimitiveType).invoke(pref, 100)
+            pref.javaClass.getMethod("setShowSeekBarValue", Boolean::class.javaPrimitiveType).invoke(pref, true)
+            pref.javaClass.getMethod("setDefaultValue", Any::class.java).invoke(pref, DEFAULT_VOLUME)
+
+            generalCategory.javaClass.getMethod("addPreference", prefBaseClass).invoke(generalCategory, pref)
+            log(Log.INFO, TAG, "volume preference injected")
+        }
+
+        // 检查壁纸引擎更新
+        if (findPreference.invoke(fragment, CHECK_WE_PREF_KEY) == null) {
+            addActionPreference(cl, context, generalCategory, prefBaseClass,
+                CHECK_WE_PREF_KEY, "检查壁纸引擎更新",
+                "检查 Wallpaper Engine 是否有新版本"
+            ) { checkWallpaperEngineUpdate(context) }
+        }
+
+        // 检查模块更新
+        if (findPreference.invoke(fragment, CHECK_MODULE_PREF_KEY) == null) {
+            addActionPreference(cl, context, generalCategory, prefBaseClass,
+                CHECK_MODULE_PREF_KEY, "检查模块更新",
+                "检查声音修复模块是否有新版本"
+            ) { checkModuleUpdate(context) }
+        }
+    }
+
+    /** 创建一个可点击的 Preference 并加入指定分类。 */
+    private fun addActionPreference(
+        cl: ClassLoader,
+        context: Context,
+        category: Any,
+        prefBaseClass: Class<*>,
+        key: String,
+        title: String,
+        summary: String,
+        onClick: () -> Unit
+    ) {
+        val prefClass = cl.loadClass("androidx.preference.Preference")
         val pref = prefClass.getConstructor(Context::class.java).newInstance(context)
+        prefClass.getMethod("setKey", String::class.java).invoke(pref, key)
+        prefClass.getMethod("setTitle", CharSequence::class.java).invoke(pref, title)
+        prefClass.getMethod("setSummary", CharSequence::class.java).invoke(pref, summary)
+        prefClass.getMethod("setIconSpaceReserved", Boolean::class.javaPrimitiveType).invoke(pref, false)
+        prefClass.getMethod("setPersistent", Boolean::class.javaPrimitiveType).invoke(pref, false)
 
-        val lang = context.resources.configuration.locales[0].language
-        val region = context.resources.configuration.locales[0].country
-        val key = if (lang == "zh" && region == "TW") "zh-rTW" else lang
-        val (title, summary) = PREF_I18N[key] ?: PREF_I18N["en"]!!
+        val listenerClass = cl.loadClass("androidx.preference.Preference\$OnPreferenceClickListener")
+        val listener = java.lang.reflect.Proxy.newProxyInstance(
+            listenerClass.classLoader, arrayOf(listenerClass)
+        ) { proxy, method, args ->
+            when (method.name) {
+                "onPreferenceClick" -> {
+                    try {
+                        onClick()
+                    } catch (t: Throwable) {
+                        log(Log.WARN, TAG, "preference click failed", t)
+                    }
+                    true
+                }
+                "equals" -> proxy === args?.getOrNull(0)
+                "hashCode" -> System.identityHashCode(proxy)
+                "toString" -> "WESoundFixActionPreference"
+                else -> null
+            }
+        }
+        prefClass.getMethod("setOnPreferenceClickListener", listenerClass).invoke(pref, listener)
+        category.javaClass.getMethod("addPreference", prefBaseClass).invoke(category, pref)
+    }
 
-        pref.javaClass.getMethod("setKey", String::class.java).invoke(pref, PREF_KEY)
-        pref.javaClass.getMethod("setTitle", CharSequence::class.java).invoke(pref, title)
-        pref.javaClass.getMethod("setSummary", CharSequence::class.java).invoke(pref, summary)
-        pref.javaClass.getMethod("setIconSpaceReserved", Boolean::class.javaPrimitiveType).invoke(pref, false)
-        pref.javaClass.getMethod("setMin", Int::class.javaPrimitiveType).invoke(pref, 0)
-        pref.javaClass.getMethod("setMax", Int::class.javaPrimitiveType).invoke(pref, 100)
-        pref.javaClass.getMethod("setShowSeekBarValue", Boolean::class.javaPrimitiveType).invoke(pref, true)
-        pref.javaClass.getMethod("setDefaultValue", Any::class.java).invoke(pref, DEFAULT_VOLUME)
+    /** 检查模块更新（手动触发）。 */
+    private fun checkModuleUpdate(ctx: Context) {
+        Thread {
+            try {
+                val current = currentModuleVersion()
+                val server = httpGet(API_BASE + "version")?.toIntOrNull()
+                if (server == null) {
+                    postDialog(ctx, "检查模块更新", "检查失败，请稍后重试")
+                    return@Thread
+                }
+                if (server <= current) {
+                    postDialog(ctx, "检查模块更新", "已是最新版本（版本号：$current）")
+                    return@Thread
+                }
 
-        val prefBaseClass = cl.loadClass("androidx.preference.Preference")
-        generalCategory.javaClass.getMethod("addPreference", prefBaseClass).invoke(generalCategory, pref)
-        log(Log.INFO, TAG, "volume preference injected")
+                val isZhCN = ctx.resources.configuration.locales[0].let {
+                    it.language == "zh" && it.country == "CN"
+                }
+                val changelog = httpGet(API_BASE + if (isZhCN) "log" else "logen") ?: ""
+                val updateUrl = httpGet(API_BASE + "url")
+                val nonEssential = httpGet(API_BASE + "must") == "0"
+                val prefs = obtainPrefs()
+
+                Handler(Looper.getMainLooper()).post {
+                    try {
+                        if (prefs != null) {
+                            showUpdateDialog(
+                                ctx, server, changelog, updateUrl,
+                                weOutdated = false, nonEssential = nonEssential,
+                                prefs = prefs, ignoredKey = UPDATE_IGNORED_KEY)
+                        } else {
+                            showSimpleDialog(ctx, "发现模块新版本",
+                                "当前版本：$current\n最新版本：$server")
+                        }
+                    } catch (t: Throwable) {
+                        log(Log.WARN, TAG, "show module update dialog failed", t)
+                    }
+                }
+            } catch (t: Throwable) {
+                log(Log.WARN, TAG, "module update check failed", t)
+                postDialog(ctx, "检查模块更新", "检查失败，请稍后重试")
+            }
+        }.start()
+    }
+
+    /** 检查 Wallpaper Engine 更新（手动触发）。 */
+    private fun checkWallpaperEngineUpdate(ctx: Context) {
+        Thread {
+            try {
+                val server = httpGet(API_BASE + "wever")?.toIntOrNull()
+                if (server == null) {
+                    postDialog(ctx, "检查壁纸引擎更新", "检查失败，请稍后重试")
+                    return@Thread
+                }
+                val installed = try {
+                    ctx.packageManager.getPackageInfo(ctx.packageName, 0).longVersionCode.toInt()
+                } catch (_: Throwable) {
+                    -1
+                }
+                if (installed > 0 && server > installed) {
+                    postDialog(ctx, "发现 Wallpaper Engine 新版本",
+                        "当前版本：$installed\n最新版本：$server")
+                } else {
+                    postDialog(ctx, "检查壁纸引擎更新",
+                        if (installed > 0) "已是最新版本（版本号：$installed）"
+                        else "已是最新版本")
+                }
+            } catch (t: Throwable) {
+                log(Log.WARN, TAG, "we update check failed", t)
+                postDialog(ctx, "检查壁纸引擎更新", "检查失败，请稍后重试")
+            }
+        }.start()
+    }
+
+    private fun postDialog(ctx: Context, title: String, message: String) {
+        Handler(Looper.getMainLooper()).post { showSimpleDialog(ctx, title, message) }
+    }
+
+    private fun showSimpleDialog(ctx: Context, title: String, message: String) {
+        try {
+            AlertDialog.Builder(ctx)
+                .setTitle(title)
+                .setMessage(message)
+                .setPositiveButton("确定", null)
+                .show()
+        } catch (t: Throwable) {
+            log(Log.WARN, TAG, "show dialog failed", t)
+        }
+    }
+
+    /** 模块自身 versionCode（集成模式或取不到时回退到构建配置）。 */
+    private fun currentModuleVersion(): Int = try {
+        val info = moduleApplicationInfo
+        val longCode = info.javaClass.getMethod("getLongVersionCode").invoke(info) as? Number
+        longCode?.toInt() ?: info.javaClass.getField("versionCode").getInt(info)
+    } catch (_: Throwable) {
+        MODULE_VERSION_CODE
     }
 
     /** 用户音量 (0.0 ~ 1.0)。 */
@@ -876,8 +1033,14 @@ class HookEntry : XposedModule() {
         private val TARGET_PACKAGES = setOf(TARGET_PACKAGE, "io.wallpaperengine.nxdyy")
         private const val PREF_KEY = "general_volume"
         private const val DEFAULT_VOLUME = 100
+        private const val CHECK_WE_PREF_KEY = "soundfix_check_we_update"
+        private const val CHECK_MODULE_PREF_KEY = "soundfix_check_module_update"
+        private const val UPDATE_IGNORED_KEY = "we_soundfix_update_ignored_version"
         private const val UPDATE_DIALOG_TS_KEY = "we_soundfix_update_dialog_ts"
         private const val UPDATE_DIALOG_DEDUP_MS = 30_000L
+        private const val API_BASE = "https://project.nxdyy.cn/WallpaperEngineSoundFix/"
+        /** 与 build.gradle.kts 的 versionCode 保持一致，作为取不到模块信息时的回退值 */
+        private const val MODULE_VERSION_CODE = 4
 
         /** 注入壁纸引擎设置的音量滑条标题和摘要，按设备语言匹配。 */
         private val PREF_I18N = mapOf(

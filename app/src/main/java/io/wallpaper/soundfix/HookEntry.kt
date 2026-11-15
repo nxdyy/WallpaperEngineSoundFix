@@ -446,14 +446,14 @@ class HookEntry : XposedModule() {
     }
 
     private fun showSourceDialog(ctx: Context) {
-        val sources = arrayOf("迅雷网盘", "夸克网盘", "123云盘", "GitHub", "QQ群")
+        val sources = arrayOf("迅雷网盘", "夸克网盘", "123云盘", "pan.nxdyy.cn", "GitHub", "QQ群")
         AlertDialog.Builder(ctx)
             .setTitle("你从哪里下载的模块")
             .setSingleChoiceItems(sources, -1) { dialog, which ->
                 dialog.dismiss()
                 when (which) {
-                    0, 1, 4 -> showPaidResultDialog(ctx)   // 迅雷/夸克/QQ群 → 问是否付费
-                    else -> return@setSingleChoiceItems     // 123云盘/GitHub → 关闭
+                    0, 1, 5 -> showPaidResultDialog(ctx)   // 迅雷/夸克/QQ群 → 问是否付费
+                    else -> return@setSingleChoiceItems     // 123云盘/pan.nxdyy.cn/GitHub → 关闭
                 }
             }
             .setCancelable(false)
@@ -1040,7 +1040,7 @@ class HookEntry : XposedModule() {
         private const val UPDATE_DIALOG_DEDUP_MS = 30_000L
         private const val API_BASE = "https://project.nxdyy.cn/WallpaperEngineSoundFix/"
         /** 与 build.gradle.kts 的 versionCode 保持一致，作为取不到模块信息时的回退值 */
-        private const val MODULE_VERSION_CODE = 4
+        private const val MODULE_VERSION_CODE = 5
 
         /** 注入壁纸引擎设置的音量滑条标题和摘要，按设备语言匹配。 */
         private val PREF_I18N = mapOf(

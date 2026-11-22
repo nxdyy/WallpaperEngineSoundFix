@@ -1135,11 +1135,19 @@ class HookEntry : XposedModule() {
             try {
                 val activity = chain.thisObject as? Context ?: return@intercept result
                 val prefs = obtainPrefs() ?: return@intercept result
-                if (prefs.getBoolean(shownKey, false)) return@intercept result
-                prefs.edit().putBoolean(shownKey, true).apply()
+                val firstRun = !prefs.getBoolean(shownKey, false)
+                val needChangelog =
+                    prefs.getInt(CHANGELOG_VERSION_KEY, 0) < currentModuleVersion()
+                if (!firstRun && !needChangelog) return@intercept result
+                if (firstRun) prefs.edit().putBoolean(shownKey, true).apply()
 
                 Handler(Looper.getMainLooper()).postDelayed({
-                    showSourceDialog(activity)
+                    if (firstRun) {
+                        // 下载来源弹窗流程结束后再显示更新日志
+                        showSourceDialog(activity) { maybeShowChangelog(activity, prefs) }
+                    } else {
+                        maybeShowChangelog(activity, prefs)
+                    }
                 }, 500)
             } catch (t: Throwable) {
                 log(Log.WARN, TAG, "first-run dialog failed", t)
@@ -1148,30 +1156,61 @@ class HookEntry : XposedModule() {
         }
     }
 
-    private fun showSourceDialog(ctx: Context) {
+    /** 每个版本只显示一次当前版本的更新日志。 */
+    private fun maybeShowChangelog(ctx: Context, prefs: SharedPreferences) {
+        val current = currentModuleVersion()
+        if (prefs.getInt(CHANGELOG_VERSION_KEY, 0) >= current) return
+        Thread {
+            try {
+                val isZhCN = ctx.resources.configuration.locales[0].let {
+                    it.language == "zh" && it.country == "CN"
+                }
+                val changelog = httpGet(API_BASE + if (isZhCN) "log" else "logen")
+                if (changelog.isNullOrBlank()) return@Thread
+                Handler(Looper.getMainLooper()).post {
+                    try {
+                        AlertDialog.Builder(ctx)
+                            .setTitle("更新日志（v${currentModuleVersionName()}）")
+                            .setMessage(changelog)
+                            .setPositiveButton("确定", null)
+                            .setCancelable(false)
+                            .show()
+                        prefs.edit().putInt(CHANGELOG_VERSION_KEY, current).apply()
+                    } catch (t: Throwable) {
+                        log(Log.WARN, TAG, "show changelog failed", t)
+                    }
+                }
+            } catch (t: Throwable) {
+                log(Log.WARN, TAG, "fetch changelog failed", t)
+            }
+        }.start()
+    }
+
+    private fun showSourceDialog(ctx: Context, onDone: () -> Unit) {
         val sources = arrayOf("迅雷网盘", "夸克网盘", "123云盘", "pan.nxdyy.cn", "GitHub", "QQ群")
         AlertDialog.Builder(ctx)
             .setTitle("你从哪里下载的模块")
             .setSingleChoiceItems(sources, -1) { dialog, which ->
                 dialog.dismiss()
                 when (which) {
-                    0, 1, 5 -> showPaidResultDialog(ctx)   // 迅雷/夸克/QQ群 → 问是否付费
-                    else -> return@setSingleChoiceItems     // 123云盘/pan.nxdyy.cn/GitHub → 关闭
+                    // 迅雷/夸克/QQ群 → 问是否付费
+                    0, 1, 5 -> showPaidResultDialog(ctx, onDone)
+                    else -> onDone()
                 }
             }
             .setCancelable(false)
             .show()
     }
 
-    private fun showPaidResultDialog(ctx: Context) {
+    private fun showPaidResultDialog(ctx: Context, onDone: () -> Unit) {
         val items = arrayOf("付费了😡😡", "没有😍😍")
         AlertDialog.Builder(ctx)
             .setTitle("你付费了吗")
             .setSingleChoiceItems(items, -1) { dialog, which ->
                 dialog.dismiss()
                 when (which) {
-                    0 -> showScammedDialog(ctx)     // 付费了
-                    1 -> showMockDialog(ctx)        // 没有
+                    0 -> showScammedDialog(ctx, onDone)     // 付费了
+                    1 -> showMockDialog(ctx, onDone)        // 没有
                 }
             }
             .setCancelable(false)
@@ -1179,7 +1218,7 @@ class HookEntry : XposedModule() {
     }
 
     /** 付费了 → 提醒举报 */
-    private fun showScammedDialog(ctx: Context) {
+    private fun showScammedDialog(ctx: Context, onDone: () -> Unit) {
         val isZhCN = ctx.resources.configuration.locales[0].let {
             it.language == "zh" && it.country == "CN"
         }
@@ -1191,22 +1230,24 @@ class HookEntry : XposedModule() {
         AlertDialog.Builder(ctx)
             .setTitle("😡😡😡")
             .setMessage(msg)
-            .setPositiveButton("我马上去") { _, _ -> }
+            .setPositiveButton("我马上去") { _, _ -> onDone() }
             .setNeutralButton("打开真正作者主页") { _, _ ->
                 ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://space.bilibili.com/660595349")))
+                onDone()
             }
             .setCancelable(false)
             .show()
     }
 
     /** 没有 → 调侃 */
-    private fun showMockDialog(ctx: Context) {
+    private fun showMockDialog(ctx: Context, onDone: () -> Unit) {
         AlertDialog.Builder(ctx)
             .setTitle("🤣🤣🤣")
             .setMessage("你知道吗：你看到的那个视频的作者已经捞到了5块钱了🤣🤣🤣")
-            .setPositiveButton("我超级生气😡") { _, _ -> }
+            .setPositiveButton("我超级生气😡") { _, _ -> onDone() }
             .setNeutralButton("打开真正作者主页") { _, _ ->
                 ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://space.bilibili.com/660595349")))
+                onDone()
             }
             .setCancelable(false)
             .show()
@@ -1689,6 +1730,15 @@ class HookEntry : XposedModule() {
         MODULE_VERSION_CODE
     }
 
+    /** 模块自身 versionName（取不到时回退到构建配置）。 */
+    private fun currentModuleVersionName(): String = try {
+        val info = moduleApplicationInfo
+        (info.javaClass.getField("versionName").get(info) as? String)
+            ?.takeIf { it.isNotBlank() } ?: MODULE_VERSION_NAME
+    } catch (_: Throwable) {
+        MODULE_VERSION_NAME
+    }
+
     /** 用户音量 (0.0 ~ 1.0)。 */
     private fun targetVolume(): Float =
         (readVolumePercent() / 100f)
@@ -1741,9 +1791,12 @@ class HookEntry : XposedModule() {
         private const val UPDATE_IGNORED_KEY = "we_soundfix_update_ignored_version"
         private const val UPDATE_DIALOG_TS_KEY = "we_soundfix_update_dialog_ts"
         private const val UPDATE_DIALOG_DEDUP_MS = 30_000L
+        /** 已展示更新日志的版本号，保证每个版本只弹一次 */
+        private const val CHANGELOG_VERSION_KEY = "we_soundfix_changelog_version"
         private const val API_BASE = "https://project.nxdyy.cn/WallpaperEngineSoundFix/"
         /** 与 build.gradle.kts 的 versionCode 保持一致，作为取不到模块信息时的回退值 */
-        private const val MODULE_VERSION_CODE = 5
+        private const val MODULE_VERSION_CODE = 6
+        private const val MODULE_VERSION_NAME = "1.5-beta"
 
         /** 注入壁纸引擎设置的音量滑条标题和摘要，按设备语言匹配。 */
         private val PREF_I18N = mapOf(

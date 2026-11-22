@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.widget.Toast
 import io.github.libxposed.api.XposedModule
 import io.github.libxposed.api.XposedModuleInterface
 import java.lang.reflect.Method
@@ -36,6 +37,10 @@ class HookEntry : XposedModule() {
 
     override fun onModuleLoaded(param: XposedModuleInterface.ModuleLoadedParam) {
         super.onModuleLoaded(param)
+        try {
+            log(Log.DEBUG, TAG, "module apk: ${moduleApplicationInfo.sourceDir}")
+        } catch (_: Throwable) {
+        }
         log(Log.INFO, TAG, "loaded in process ${param.processName}")
     }
 
@@ -156,6 +161,702 @@ class HookEntry : XposedModule() {
             hookPropertyLocalization(cl)
         } catch (t: Throwable) {
             log(Log.ERROR, TAG, "hook property localization failed", t)
+        }
+
+        // 网页壁纸渲染（系统 WebView + VirtualDisplay）
+        try {
+            hookWebWallpaper(cl)
+        } catch (t: Throwable) {
+            log(Log.ERROR, TAG, "hook web wallpaper failed", t)
+        }
+
+        // 网页壁纸列表项、缩略图与预览页
+        try {
+            hookWebWallpaperList(cl)
+        } catch (t: Throwable) {
+            log(Log.ERROR, TAG, "hook web wallpaper list failed", t)
+        }
+
+        // 壁纸引擎设置中的网页壁纸选项（帧率限制、渲染倍率）
+        try {
+            hookWebWallpaperSettings(cl)
+        } catch (t: Throwable) {
+            log(Log.ERROR, TAG, "hook web wallpaper settings failed", t)
+        }
+
+        // “添加”页面的导入网页壁纸（ZIP）
+        try {
+            hookWebWallpaperImport(cl)
+        } catch (t: Throwable) {
+            log(Log.ERROR, TAG, "hook web wallpaper import failed", t)
+        }
+    }
+
+    /**
+     * 网页壁纸支持：
+     * - onSurfaceCreated / loadWallpaper 命中网页壁纸时，用 VirtualDisplay + WebView 接管渲染
+     * - 未命中时完全走原版逻辑
+     * - onSurfaceDestroyed / onDestroy 释放 WebView 与 VirtualDisplay
+     */
+    private fun hookWebWallpaper(cl: ClassLoader) {
+        val engineClass = cl.loadClass("io.wallpaperengine.weclient.WEWallpaperService\$GLWallpaperEngine")
+
+        val surfaceCreated = engineClass.getDeclaredMethod(
+            "onSurfaceCreated", android.view.SurfaceHolder::class.java)
+        hook(surfaceCreated).intercept { chain ->
+            try {
+                val engine = chain.thisObject
+                val ctx = engineContext(engine)
+                val holder = chain.getArg(0) as? android.view.SurfaceHolder
+                val dir = WebWallpaper.pickWallpaper(ctx ?: return@intercept chain.proceed(), null)
+                if (dir != null && ctx != null && holder != null) {
+                    val frame = holder.surfaceFrame
+                    var w = frame.width()
+                    var h = frame.height()
+                    if (w <= 0 || h <= 0) {
+                        w = ctx.resources.displayMetrics.widthPixels
+                        h = ctx.resources.displayMetrics.heightPixels
+                    }
+                    if (WebWallpaper.start(ctx, dir, holder.surface, w, h, engine)) {
+                        enableWallpaperTouch(engine)
+                        log(Log.INFO, TAG, "web wallpaper takeover on surfaceCreated")
+                        return@intercept null
+                    }
+                }
+                WebWallpaper.stop(engine)
+            } catch (t: Throwable) {
+                log(Log.WARN, TAG, "web wallpaper surface hook failed", t)
+                WebWallpaper.stop(chain.thisObject)
+            }
+            chain.proceed()
+        }
+
+        val loadWallpaper = engineClass.getDeclaredMethod(
+            "loadWallpaper", String::class.java)
+        hook(loadWallpaper).intercept { chain ->
+            try {
+                val engine = chain.thisObject
+                val ctx = engineContext(engine)
+                val path = chain.getArg(0) as? String
+                val dir = WebWallpaper.pickWallpaper(ctx ?: return@intercept chain.proceed(), path)
+                if (dir != null && ctx != null) {
+                    val holder = engineHolder(engine)
+                    val surface = holder?.surface
+                    if (surface != null && holder != null && surface.isValid) {
+                        val frame = holder.surfaceFrame
+                        var w = frame.width()
+                        var h = frame.height()
+                        if (w <= 0 || h <= 0) {
+                            w = ctx.resources.displayMetrics.widthPixels
+                            h = ctx.resources.displayMetrics.heightPixels
+                        }
+                        if (WebWallpaper.start(ctx, dir, surface, w, h, engine)) {
+                            enableWallpaperTouch(engine)
+                            log(Log.INFO, TAG, "web wallpaper takeover on loadWallpaper")
+                            return@intercept null
+                        }
+                    }
+                }
+                if (dir == null) WebWallpaper.stop(engine)
+            } catch (t: Throwable) {
+                log(Log.WARN, TAG, "web wallpaper load hook failed", t)
+                WebWallpaper.stop(chain.thisObject)
+            }
+            chain.proceed()
+        }
+
+        // 触摸事件转发给网页，网页壁纸才能响应手指移动/点击
+        val touchEvent = engineClass.getDeclaredMethod(
+            "onTouchEvent", android.view.MotionEvent::class.java)
+        hook(touchEvent).intercept { chain ->
+            try {
+                val ev = chain.getArg(0) as? android.view.MotionEvent
+                if (ev != null && WebWallpaper.dispatchTouch(chain.thisObject, ev)) {
+                    return@intercept null
+                }
+            } catch (t: Throwable) {
+                log(Log.WARN, TAG, "web touch dispatch failed", t)
+            }
+            chain.proceed()
+        }
+
+        val surfaceDestroyed = engineClass.getDeclaredMethod(
+            "onSurfaceDestroyed", android.view.SurfaceHolder::class.java)
+        hook(surfaceDestroyed).intercept { chain ->
+            WebWallpaper.stop(chain.thisObject)
+            chain.proceed()
+        }
+
+        val destroy = engineClass.getDeclaredMethod("onDestroy")
+        hook(destroy).intercept { chain ->
+            WebWallpaper.stop(chain.thisObject)
+            chain.proceed()
+        }
+
+        log(Log.INFO, TAG, "web wallpaper hook installed")
+    }
+
+    /** 网页壁纸：列表条目、缩略图与预览页。 */
+    private fun hookWebWallpaperList(cl: ClassLoader) {
+        val browseClass = cl.loadClass("io.wallpaperengine.weclient.BrowseActivity")
+        val onCreate = browseClass.getDeclaredMethod("onCreate", Bundle::class.java)
+        hook(onCreate).intercept { chain ->
+            val result = chain.proceed()
+            try {
+                injectWebWallpapers(chain.thisObject, cl)
+            } catch (t: Throwable) {
+                log(Log.WARN, TAG, "inject web wallpapers failed", t)
+            }
+            result
+        }
+
+        // 列表缩略图：从壁纸目录的 preview/default 图片解码
+        val utilCompanion = cl.loadClass("io.wallpaperengine.weutil.Util\$Companion")
+        val sceneLibClass = cl.loadClass("io.wallpaperengine.wrapper.SceneLib")
+        val sparseClass = cl.loadClass("io.wallpaperengine.weutil.WallpaperInfoSparse")
+        val previewBitmap = utilCompanion.getDeclaredMethod(
+            "getWallpaperPreviewBitmap", Context::class.java, sceneLibClass, sparseClass)
+        hook(previewBitmap).intercept { chain ->
+            try {
+                val ctx = chain.getArg(0) as? Context
+                val item = chain.getArg(2)
+                val path = item?.javaClass?.getMethod("getFilePath")?.invoke(item) as? String
+                val bmp = if (ctx != null && path != null) {
+                    WebWallpaper.previewBitmap(ctx, path)
+                } else null
+                if (bmp != null) return@intercept bmp
+            } catch (t: Throwable) {
+                log(Log.WARN, TAG, "web preview bitmap hook failed", t)
+            }
+            chain.proceed()
+        }
+
+        // 预览页：把原来的 Video/Scene 视图替换为网页预览
+        val previewClass = cl.loadClass("io.wallpaperengine.weclient.PreviewActivity")
+        val previewOnCreate = previewClass.getDeclaredMethod("onCreate", Bundle::class.java)
+        hook(previewOnCreate).intercept { chain ->
+            val result = chain.proceed()
+            try {
+                val activity = chain.thisObject as? android.app.Activity
+                if (activity != null && !activity.isFinishing) {
+                    val selected = activity.javaClass.getMethod("getSelectedWallpaper")
+                        .invoke(activity)
+                    val path = selected?.javaClass?.getMethod("getFilePath")
+                        ?.invoke(selected) as? String
+                    val dir = WebWallpaper.webDir(activity, path)
+                    if (dir != null) {
+                        val field = activity.javaClass
+                            .getDeclaredField("wallpaperContainer")
+                            .apply { isAccessible = true }
+                        val container = field.get(activity) as? android.view.ViewGroup
+                        if (container != null) {
+                            // 原版要等 Scene/Video 加载完成才会把容器设为可见，
+                            // 网页壁纸不会触发该回调，这里直接切换界面状态。
+                            container.visibility = android.view.View.VISIBLE
+                            WebWallpaper.addPreview(activity, container, dir)
+                            try {
+                                activity.javaClass.getDeclaredField("hasLoadedWallpaper")
+                                    .apply { isAccessible = true }
+                                    .setBoolean(activity, true)
+                            } catch (_: Throwable) {
+                            }
+                            hideViewField(activity, "loadingPanel")
+                            hideViewField(activity, "backgroundImage")
+                        }
+                    }
+                }
+            } catch (t: Throwable) {
+                log(Log.WARN, TAG, "web preview hook failed", t)
+            }
+            result
+        }
+
+        val previewOnDestroy = previewClass.getDeclaredMethod("onDestroy")
+        hook(previewOnDestroy).intercept { chain ->
+            WebWallpaper.stopPreview()
+            chain.proceed()
+        }
+
+        log(Log.INFO, TAG, "web wallpaper list hook installed")
+    }
+
+    /**
+     * 在壁纸引擎的“常规设置”页面添加网页壁纸选项：
+     * - 网页壁纸帧率限制（15/20/24/30/60 fps）
+     * - 网页壁纸渲染倍率（100%/75%/50%）
+     */
+    private fun hookWebWallpaperSettings(cl: ClassLoader) {
+        val fragmentClass = cl.loadClass(
+            "io.wallpaperengine.weclient.GeneralSettingsActivity\$SettingsFragment")
+        val onCreatePreferences = fragmentClass.getDeclaredMethod(
+            "onCreatePreferences", Bundle::class.java, String::class.java)
+        hook(onCreatePreferences).intercept { chain ->
+            val result = chain.proceed()
+            try {
+                addWebWallpaperPreferences(chain.thisObject, cl)
+            } catch (t: Throwable) {
+                val cause = (t as? java.lang.reflect.InvocationTargetException)
+                    ?.targetException ?: t
+                log(Log.WARN, TAG,
+                    "add web wallpaper preferences failed: ${cause.javaClass.name}: ${cause.message}",
+                    cause)
+            }
+            result
+        }
+        log(Log.INFO, TAG, "web wallpaper settings hook installed")
+    }
+
+    // ------------------------------------------------------------ 网页壁纸导入
+
+    private val REQ_IMPORT_WEB_WALLPAPER = 0x5A31
+    private val TAG_IMPORT_BUTTON = "wesf_web_import_button"
+
+    /**
+     * 在“添加”页面增加“导入网页壁纸”按钮，
+     * 并接收系统文件选择器的结果。
+     */
+    private fun hookWebWallpaperImport(cl: ClassLoader) {
+        val fragmentClass = cl.loadClass(
+            "io.wallpaperengine.weclient.ui.importfile.ImportFileFragment")
+        val onCreateView = fragmentClass.getMethod(
+            "onCreateView",
+            android.view.LayoutInflater::class.java,
+            android.view.ViewGroup::class.java,
+            Bundle::class.java)
+        hook(onCreateView).intercept { chain ->
+            val result = chain.proceed()
+            try {
+                addWebImportButton(chain.thisObject, result as? android.view.View)
+            } catch (t: Throwable) {
+                log(Log.WARN, TAG, "add web import button failed", t)
+            }
+            result
+        }
+
+        // BrowseActivity 没有重写 onActivityResult，结果由 FragmentActivity 分发
+        val activityClass = cl.loadClass("androidx.fragment.app.FragmentActivity")
+        val onActivityResult = activityClass.getDeclaredMethod(
+            "onActivityResult",
+            Int::class.javaPrimitiveType,
+            Int::class.javaPrimitiveType,
+            Intent::class.java)
+        hook(onActivityResult).intercept { chain ->
+            val result = chain.proceed()
+            try {
+                handleWebImportResult(
+                    chain.thisObject,
+                    chain.getArg(0) as? Int ?: -1,
+                    chain.getArg(1) as? Int ?: 0,
+                    chain.getArg(2) as? Intent,
+                    cl)
+            } catch (t: Throwable) {
+                log(Log.WARN, TAG, "handle web import result failed", t)
+            }
+            result
+        }
+        log(Log.INFO, TAG, "web wallpaper import hook installed")
+    }
+
+    private fun addWebImportButton(fragment: Any?, view: android.view.View?) {
+        if (fragment == null || view == null) return
+        if (view.findViewWithTag<android.view.View>(TAG_IMPORT_BUTTON) != null) return
+        val ctx = view.context
+        val res = ctx.resources
+        val pkg = ctx.packageName
+        val localId = res.getIdentifier("btImportLocally", "id", pkg)
+        if (localId == 0) return
+        val local = view.findViewById<android.view.View>(localId) ?: return
+        val parent = local.parent as? android.widget.LinearLayout ?: return
+
+        val button = android.widget.Button(ctx)
+        button.text = "导入网页壁纸"
+        button.isAllCaps = false
+        button.tag = TAG_IMPORT_BUTTON
+        // 复制“导入文件”按钮的外观，保持界面风格一致
+        try {
+            button.background =
+                local.background?.constantState?.newDrawable(res, ctx.theme)?.mutate()
+            button.backgroundTintList = local.backgroundTintList
+            button.stateListAnimator = local.stateListAnimator
+            button.minHeight = local.minimumHeight
+            button.minWidth = local.minimumWidth
+            button.setPadding(
+                local.paddingLeft, local.paddingTop, local.paddingRight, local.paddingBottom)
+            if (local is android.widget.TextView) {
+                button.setTextColor(local.textColors)
+                button.typeface = local.typeface
+                button.gravity = local.gravity
+                button.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, local.textSize)
+            }
+        } catch (_: Throwable) {
+        }
+        val lp = local.layoutParams
+        if (lp != null) button.layoutParams = android.widget.LinearLayout.LayoutParams(lp)
+
+        // 放在“本地导入”及其说明文字之后
+        var index = parent.indexOfChild(local) + 1
+        val hintId = res.getIdentifier("tvImportFileHint", "id", pkg)
+        if (hintId != 0) {
+            val hint = view.findViewById<android.view.View>(hintId)
+            if (hint != null && hint.parent === parent) {
+                index = parent.indexOfChild(hint) + 1
+            }
+        }
+        parent.addView(button, index)
+        button.setOnClickListener {
+            try {
+                val activity = fragment.javaClass.getMethod("requireActivity")
+                    .invoke(fragment) as? android.app.Activity ?: return@setOnClickListener
+                val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "*/*"
+                    putExtra(Intent.EXTRA_MIME_TYPES, arrayOf(
+                        "application/zip",
+                        "application/x-zip-compressed",
+                        "application/octet-stream"))
+                }
+                activity.startActivityForResult(intent, REQ_IMPORT_WEB_WALLPAPER)
+            } catch (t: Throwable) {
+                log(Log.WARN, TAG, "open zip picker failed", t)
+            }
+        }
+    }
+
+    private fun handleWebImportResult(
+        activity: Any?,
+        requestCode: Int,
+        resultCode: Int,
+        data: Intent?,
+        cl: ClassLoader
+    ) {
+        if (requestCode != REQ_IMPORT_WEB_WALLPAPER) return
+        val act = activity as? android.app.Activity ?: return
+        if (act.javaClass.name != "io.wallpaperengine.weclient.BrowseActivity") return
+        if (resultCode != android.app.Activity.RESULT_OK) return
+        val uri: Uri = data?.data ?: return
+
+        Thread {
+            try {
+                val name = WebWallpaper.importZip(act, uri)
+                log(Log.INFO, TAG, "web wallpaper imported: $name")
+                act.runOnUiThread {
+                    Toast.makeText(act, "网页壁纸导入成功", Toast.LENGTH_SHORT).show()
+                    try {
+                        injectWebWallpapers(act, cl)
+                    } catch (t: Throwable) {
+                        log(Log.WARN, TAG, "refresh web wallpaper list failed", t)
+                    }
+                }
+            } catch (t: Throwable) {
+                log(Log.WARN, TAG, "import web wallpaper failed", t)
+                val message = t.message ?: "导入失败"
+                act.runOnUiThread {
+                    Toast.makeText(act, message, Toast.LENGTH_LONG).show()
+                }
+            }
+        }.start()
+    }
+
+    private fun addWebWallpaperPreferences(fragment: Any?, cl: ClassLoader) {
+        if (fragment == null) return
+        val ctx = fragment.javaClass.getMethod("getContext").invoke(fragment) as? Context ?: return
+        val screen = fragment.javaClass.getMethod("getPreferenceScreen").invoke(fragment) ?: return
+
+        val prefClass = cl.loadClass("androidx.preference.Preference")
+        val seekClass = cl.loadClass("androidx.preference.SeekBarPreference")
+        val groupClass = cl.loadClass("androidx.preference.PreferenceGroup")
+        val listenerClass = cl.loadClass("androidx.preference.Preference\$OnPreferenceChangeListener")
+        val addPreference = groupClass.getMethod("addPreference", prefClass)
+        val findPreference = groupClass.getMethod("findPreference", CharSequence::class.java)
+
+        // general_fps 位于“常规”分组内，需要加到它的父分组里才能紧跟其后
+        val anchor = try {
+            findPreference.invoke(screen, "general_fps")
+        } catch (_: Throwable) {
+            null
+        }
+        val target: Any = if (anchor != null) {
+            try {
+                prefClass.getMethod("getParent").invoke(anchor) ?: screen
+            } catch (_: Throwable) {
+                screen
+            }
+        } else {
+            screen
+        }
+
+        val fpsPref = addWebSeekPreference(
+            target, ctx, prefClass, seekClass, listenerClass, findPreference, addPreference,
+            key = WebWallpaper.KEY_FPS,
+            title = "网页壁纸帧率限制",
+            min = 10, max = 60, step = 5, defValue = 20,
+            cl = cl)
+
+        val scalePref = addWebSeekPreference(
+            target, ctx, prefClass, seekClass, listenerClass, findPreference, addPreference,
+            key = WebWallpaper.KEY_RENDER_SCALE,
+            title = "网页壁纸渲染精度（％）",
+            min = 50, max = 100, step = 25, defValue = 100,
+            cl = cl)
+
+        // Preference 按 order 排序（Collections.sort），
+        // 把“FPS 限制”之后的条目整体后移，给两个新条目腾出 order 1、2。
+        try {
+            val setOrder = prefClass.getMethod("setOrder", Int::class.javaPrimitiveType)
+            val getOrder = prefClass.getMethod("getOrder")
+            val getKey = prefClass.getMethod("getKey")
+            val count = groupClass.getMethod("getPreferenceCount").invoke(target) as Int
+            for (i in 0 until count) {
+                val item = groupClass.getMethod(
+                    "getPreference", Int::class.javaPrimitiveType).invoke(target, i)
+                val key = getKey.invoke(item)
+                if (key == WebWallpaper.KEY_FPS || key == WebWallpaper.KEY_RENDER_SCALE) continue
+                val order = getOrder.invoke(item) as Int
+                if (order >= 1) setOrder.invoke(item, order + 2)
+            }
+            setOrder.invoke(fpsPref, 1)
+            setOrder.invoke(scalePref, 2)
+            try {
+                groupClass.getMethod("notifyHierarchyChanged").invoke(target)
+            } catch (_: Throwable) {
+            }
+        } catch (t: Throwable) {
+            log(Log.WARN, TAG, "reorder web wallpaper preferences failed", t)
+        }
+    }
+
+    private fun addWebSeekPreference(
+        screen: Any,
+        ctx: Context,
+        prefClass: Class<*>,
+        seekClass: Class<*>,
+        listenerClass: Class<*>,
+        findPreference: java.lang.reflect.Method,
+        addPreference: java.lang.reflect.Method,
+        key: String,
+        title: String,
+        min: Int,
+        max: Int,
+        step: Int,
+        defValue: Int,
+        cl: ClassLoader
+    ): Any? {
+        // 页面重建时避免重复添加
+        if (findPreference.invoke(screen, key) != null) return null
+
+        // 旧版本 ListPreference 存的是字符串，SeekBarPreference 读 int 会类型转换崩溃
+        migratePreferenceToInt(ctx, key)
+
+        val pref = seekClass.getConstructor(Context::class.java).newInstance(ctx)
+        seekClass.getMethod("setKey", String::class.java).invoke(pref, key)
+        prefClass.getMethod("setTitle", CharSequence::class.java).invoke(pref, title)
+        seekClass.getMethod("setMin", Int::class.javaPrimitiveType).invoke(pref, min)
+        seekClass.getMethod("setMax", Int::class.javaPrimitiveType).invoke(pref, max)
+        try {
+            seekClass.getMethod("setSeekBarIncrement", Int::class.javaPrimitiveType)
+                .invoke(pref, step)
+        } catch (_: Throwable) {
+        }
+        try {
+            seekClass.getMethod("setShowSeekBarValue", Boolean::class.javaPrimitiveType)
+                .invoke(pref, true)
+        } catch (_: Throwable) {
+        }
+        // 去掉条目左侧的图标占位空白
+        try {
+            prefClass.getMethod("setIconSpaceReserved", Boolean::class.javaPrimitiveType)
+                .invoke(pref, false)
+        } catch (_: Throwable) {
+        }
+        val current = readDefaultPreferenceInt(ctx, key, defValue).coerceIn(min, max)
+        seekClass.getMethod("setValue", Int::class.javaPrimitiveType).invoke(pref, current)
+
+        // 调整后重载壁纸，让新设置立即生效
+        val listener = java.lang.reflect.Proxy.newProxyInstance(
+            cl, arrayOf(listenerClass)
+        ) { _, method, args ->
+            when (method.name) {
+                "onPreferenceChange" -> {
+                    try {
+                        WebWallpaper.scheduleApplySettings()
+                    } catch (_: Throwable) {
+                    }
+                    true
+                }
+                "hashCode" -> System.identityHashCode(method)
+                "equals" -> false
+                "toString" -> "WebWallpaperPreferenceListener"
+                else -> null
+            }
+        }
+        seekClass.getMethod("setOnPreferenceChangeListener", listenerClass)
+            .invoke(pref, listener)
+
+        addPreference.invoke(screen, pref)
+        log(Log.INFO, TAG, "web wallpaper preference added: $key")
+        return pref
+    }
+
+    private fun readDefaultPreferenceInt(ctx: Context, key: String, def: Int): Int {
+        val sp = defaultSharedPreferences(ctx) ?: return def
+        return when (val v = sp.all[key]) {
+            is Int -> v
+            is Long -> v.toInt()
+            is String -> v.toIntOrNull() ?: def
+            else -> def
+        }
+    }
+
+    /** 把旧版本保存的字符串值迁移为整数。 */
+    private fun migratePreferenceToInt(ctx: Context, key: String) {
+        try {
+            val sp = defaultSharedPreferences(ctx) ?: return
+            val v = sp.all[key]
+            if (v is String) {
+                val n = v.toIntOrNull()
+                val editor = sp.edit()
+                if (n != null) editor.putInt(key, n) else editor.remove(key)
+                editor.apply()
+            }
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun defaultSharedPreferences(ctx: Context): android.content.SharedPreferences? {
+        return try {
+            val pm = Class.forName("androidx.preference.PreferenceManager")
+            pm.getMethod("getDefaultSharedPreferences", Context::class.java)
+                .invoke(null, ctx) as android.content.SharedPreferences
+        } catch (_: Throwable) {
+            try {
+                ctx.getSharedPreferences(
+                    ctx.packageName + "_preferences", Context.MODE_PRIVATE)
+            } catch (_: Throwable) {
+                null
+            }
+        }
+    }
+
+    /** 把 files/webwallpapers 下的网页壁纸加入浏览列表。 */
+    private fun injectWebWallpapers(activity: Any?, cl: ClassLoader) {
+        val ctx = activity as? Context ?: return
+        val entries = WebWallpaper.entries(ctx)
+
+        val vm = activity.javaClass.getMethod("getWallpaperViewModel").invoke(activity)
+        val live = vm.javaClass.getMethod("getWallpapers").invoke(vm) ?: return
+        val list = live.javaClass.getMethod("getValue").invoke(live) as? MutableList<Any> ?: return
+        val infoClass = cl.loadClass("io.wallpaperengine.weutil.WallpaperInfoSparse")
+        val getPath = infoClass.getMethod("getFilePath")
+
+        // 清掉目录已被删除的网页壁纸条目
+        var removed = false
+        val existing = HashSet<String>()
+        val iterator = list.iterator()
+        while (iterator.hasNext()) {
+            val item = iterator.next()
+            val path = try {
+                getPath.invoke(item) as? String
+            } catch (_: Throwable) {
+                null
+            } ?: continue
+            if (path.startsWith("webwallpapers/")) {
+                val dir = java.io.File(ctx.filesDir, path)
+                if (!dir.isDirectory) {
+                    iterator.remove()
+                    removed = true
+                    log(Log.INFO, TAG, "stale web wallpaper removed from list: $path")
+                    continue
+                }
+            }
+            existing.add(path)
+        }
+
+        var added = false
+        for (e in entries) {
+            val path = "webwallpapers/${e.name}"
+            if (existing.contains(path)) continue
+            val item = infoClass.getConstructor().newInstance()
+            infoClass.getMethod("setTitle", String::class.java).invoke(item, e.title)
+            infoClass.getMethod("setFilePath", String::class.java).invoke(item, path)
+            infoClass.getMethod("setProgress", Int::class.javaPrimitiveType).invoke(item, 100)
+            infoClass.getMethod("setType", String::class.java).invoke(item, "Web")
+            infoClass.getMethod("setLastModifiedDate", Long::class.javaPrimitiveType)
+                .invoke(item, e.lastModified)
+            infoClass.getMethod("setLocal", Boolean::class.javaPrimitiveType).invoke(item, false)
+            infoClass.getMethod("setOfficial", Boolean::class.javaPrimitiveType).invoke(item, false)
+            infoClass.getMethod("setError", Boolean::class.javaPrimitiveType).invoke(item, false)
+            list.add(item)
+            added = true
+            log(Log.INFO, TAG, "web wallpaper added to list: ${e.title}")
+        }
+        if (!added && !removed) return
+
+        try {
+            val ktClass = cl.loadClass("io.wallpaperengine.weclient.ui.WallpaperViewModelKt")
+            val notify = ktClass.getDeclaredMethod(
+                "notifyObserver", cl.loadClass("androidx.lifecycle.MutableLiveData"))
+            notify.invoke(null, live)
+        } catch (t: Throwable) {
+            try {
+                live.javaClass.getMethod("postValue", Any::class.java).invoke(live, list)
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
+    private fun engineContext(engine: Any?): Context? {
+        if (engine == null) return null
+        try {
+            val f = engine.javaClass.getDeclaredField("this\$0").apply { isAccessible = true }
+            (f.get(engine) as? Context)?.let { return it }
+        } catch (_: Throwable) {
+        }
+        return try {
+            Class.forName("android.app.ActivityThread")
+                .getDeclaredMethod("currentApplication").invoke(null) as? Context
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    /**
+     * 已经启用触摸的 Engine。setTouchEventsEnabled 会同步触发
+     * updateSurface → onSurfaceCreated，如果不加标记会无限递归。
+     */
+    private val touchEnabledEngines = java.util.WeakHashMap<Any, Boolean>()
+
+    /** 让壁纸服务接收触摸事件（原版只在设置里开启触摸输入时才启用）。 */
+    private fun enableWallpaperTouch(engine: Any?) {
+        if (engine == null) return
+        if (touchEnabledEngines[engine] == true) return
+        touchEnabledEngines[engine] = true
+        try {
+            engine.javaClass
+                .getMethod("setTouchEventsEnabled", Boolean::class.javaPrimitiveType)
+                .invoke(engine, true)
+            log(Log.INFO, TAG, "web wallpaper touch enabled")
+        } catch (t: Throwable) {
+            touchEnabledEngines.remove(engine)
+            log(Log.WARN, TAG, "enable wallpaper touch failed", t)
+        }
+    }
+
+    /** 隐藏 PreviewActivity 中指定的 View 字段（封面图、加载圈等）。 */
+    private fun hideViewField(activity: android.app.Activity, name: String) {
+        try {
+            val f = activity.javaClass.getDeclaredField(name).apply { isAccessible = true }
+            (f.get(activity) as? android.view.View)?.visibility = android.view.View.GONE
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun engineHolder(engine: Any?): android.view.SurfaceHolder? {
+        if (engine == null) return null
+        return try {
+            val f = engine.javaClass.getDeclaredField("holder").apply { isAccessible = true }
+            f.get(engine) as? android.view.SurfaceHolder
+        } catch (_: Throwable) {
+            null
         }
     }
 
@@ -390,6 +1091,8 @@ class HookEntry : XposedModule() {
             try {
                 val engine = chain.thisObject ?: return@intercept result
                 val shouldPause = shouldBePausedMethod.invoke(engine) as Boolean
+                // 网页壁纸：不可见/省电时暂停该 Engine 的 WebView
+                WebWallpaper.setPaused(engine, shouldPause)
                 // 1) AudioRecorder（FFT 采集），仅当壁纸启用了 audioprocessing
                 val recorder = recorderField.get(engine)
                 if (recorder != null) {

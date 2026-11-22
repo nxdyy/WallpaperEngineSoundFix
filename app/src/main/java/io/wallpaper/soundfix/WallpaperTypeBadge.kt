@@ -178,6 +178,9 @@ internal object WallpaperTypeBadge {
     }
 
     private fun detect(ctx: Context, path: String): String? {
+        // 模块注入的网页壁纸：filePath 是 files/webwallpapers/<name> 目录
+        if (path.startsWith("webwallpapers/")) return TYPE_WEB
+
         if (path.startsWith("content://")) {
             val mime = try {
                 ctx.contentResolver.getType(Uri.parse(path))

@@ -48,7 +48,89 @@ internal object WebWallpaper {
 
     private const val TAG = "WESoundFix"
     private const val ROOT_DIR = "webwallpapers"
-    private const val CURRENT_FILE = "current"
+
+    /** 暂停页面内所有 audio/video 与 Web Audio，避免退出后声音继续播放。 */
+    private val PAUSE_MEDIA_JS = """
+        (function(){
+          var n = 0;
+          try { n = document.querySelectorAll('audio,video').length } catch (e) {}
+          try {
+            if (window.__wePauseAll) { window.__wePauseAll(); return 'guard,' + n }
+          } catch (e) {}
+          try {
+            var m = document.querySelectorAll('audio,video');
+            for (var i = 0; i < m.length; i++) { try { m[i].pause() } catch (e) {} }
+          } catch (e) {}
+          return 'plain,' + n
+        })()
+    """.trimIndent()
+
+    private val RESUME_MEDIA_JS = """
+        (function(){
+          try { if (window.__weResumeAll) window.__weResumeAll() } catch (e) {}
+        })()
+    """.trimIndent()
+
+    /**
+     * 在页面脚本执行前注入媒体守卫：
+     * - 记录所有 AudioContext（页面后续创建的也能暂停）
+     * - 暂停期间拦截 HTMLMediaElement.play()，防止页面自动重试播放
+     * - 同时处理同源 iframe
+     */
+    private val MEDIA_GUARD_JS = """
+        <script>
+        (function () {
+          var cs = [];
+          var AC = window.AudioContext || window.webkitAudioContext;
+          if (AC) {
+            var W = function () {
+              var c = new AC(...arguments);
+              cs.push(c);
+              if (window.__wePaused) { try { c.suspend() } catch (e) {} }
+              return c;
+            };
+            W.prototype = AC.prototype;
+            window.AudioContext = W;
+            window.webkitAudioContext = W;
+          }
+          window.__wePaused = false;
+          var origPlay = HTMLMediaElement.prototype.play;
+          HTMLMediaElement.prototype.play = function () {
+            if (window.__wePaused) {
+              try { this.pause() } catch (e) {}
+              return Promise.resolve();
+            }
+            return origPlay.apply(this, arguments);
+          };
+          document.addEventListener('play', function (e) {
+            if (window.__wePaused) { try { e.target.pause() } catch (e2) {} }
+          }, true);
+          window.__wePauseMedia = function () {
+            window.__wePaused = true;
+            var m = document.querySelectorAll('audio,video');
+            for (var i = 0; i < m.length; i++) { try { m[i].pause() } catch (e) {} }
+            for (var j = 0; j < cs.length; j++) { try { cs[j].suspend() } catch (e) {} }
+          };
+          window.__weResumeMedia = function () {
+            window.__wePaused = false;
+            for (var j = 0; j < cs.length; j++) { try { cs[j].resume() } catch (e) {} }
+          };
+          function eachFrame(fn) {
+            for (var i = 0; i < window.frames.length; i++) {
+              try { fn(window.frames[i]) } catch (e) {}
+            }
+          }
+          window.__wePauseAll = function () {
+            window.__wePauseMedia();
+            eachFrame(function (f) { if (f.__wePauseMedia) f.__wePauseMedia(); });
+          };
+          window.__weResumeAll = function () {
+            window.__weResumeMedia();
+            eachFrame(function (f) { if (f.__weResumeMedia) f.__weResumeMedia(); });
+          };
+        })();
+        </script>
+    """.trimIndent()
     /** 设置项：网页壁纸帧率上限（默认 20fps） */
     const val KEY_FPS = "web_wallpaper_fps"
 
@@ -98,10 +180,8 @@ internal object WebWallpaper {
 
     /** 选择当前要渲染的网页壁纸目录；不是网页壁纸返回 null。 */
     fun pickWallpaper(ctx: Context, path: String?): File? {
-        // 用户从列表选中的网页壁纸优先
-        val selected = resolveDir(ctx, path)
-        if (selected != null && isWebProject(selected)) return selected
-        return overrideDir(ctx)
+        val selected = resolveDir(ctx, path) ?: return null
+        return if (isWebProject(selected)) selected else null
     }
 
     /** 解析并确认某个 filePath 是网页壁纸目录。 */
@@ -290,9 +370,31 @@ internal object WebWallpaper {
         val wv = previewWebView ?: return
         previewWebView = null
         try {
+            wv.evaluateJavascript(PAUSE_MEDIA_JS, null)
             wv.onPause()
+            wv.loadUrl("about:blank")
             wv.stopLoading()
             wv.destroy()
+        } catch (_: Throwable) {
+        }
+    }
+
+    /** 预览页不可见时暂停 WebView 并停止页面里的音频。 */
+    fun pausePreview() {
+        val wv = previewWebView ?: return
+        try {
+            wv.evaluateJavascript(PAUSE_MEDIA_JS) { r ->
+                Log.i(TAG, "preview media pause result: $r")
+            }
+            wv.onPause()
+        } catch (_: Throwable) {
+        }
+    }
+
+    fun resumePreview() {
+        try {
+            previewWebView?.evaluateJavascript(RESUME_MEDIA_JS, null)
+            previewWebView?.onResume()
         } catch (_: Throwable) {
         }
     }
@@ -336,13 +438,25 @@ internal object WebWallpaper {
         }
         existing?.stop()
         renderers.remove(owner)
+        // 同一个 Surface 只能有一个生产者，否则两个 WebView 交替出帧会表现为画面跳动
+        val duplicate = renderers.entries.firstOrNull {
+            it.key !== owner && it.value.surface === surface
+        }
+        if (duplicate != null) {
+            duplicate.value.stop()
+            renderers.remove(duplicate.key)
+            Log.i(TAG, "stopped duplicate renderer on same surface: " +
+                "engine=${duplicate.key.hashCode()}")
+        }
         if (!surface.isValid) return false
         val densityDpi = ctx.resources.displayMetrics.densityDpi
         return try {
             val r = Renderer(ctx, dir, surface, width, height, densityDpi)
             r.start()
             renderers[owner] = r
-            Log.i(TAG, "web wallpaper started: ${dir.name}, ${width}x${height}")
+            Log.i(TAG, "web wallpaper started: ${dir.name}, ${width}x${height}, " +
+                "engine=${owner.hashCode()}, surface=${System.identityHashCode(surface)}, " +
+                "total=${renderers.size}")
             true
         } catch (t: Throwable) {
             Log.e(TAG, "start web wallpaper failed", t)
@@ -356,6 +470,8 @@ internal object WebWallpaper {
             renderers.remove(owner)?.let { r ->
                 try {
                     r.stop()
+                    Log.i(TAG, "web wallpaper stopped: engine=${owner.hashCode()}, " +
+                        "surface=${System.identityHashCode(r.surface)}, total=${renderers.size}")
                 } catch (t: Throwable) {
                     Log.w(TAG, "stop web wallpaper failed", t)
                 }
@@ -372,6 +488,8 @@ internal object WebWallpaper {
     }
 
     fun setPaused(owner: Any?, p: Boolean) {
+        Log.i(TAG, "web wallpaper setPaused=$p, engine=${owner?.hashCode()}, " +
+            "renderer=${renderers[owner] != null}")
         renderers[owner]?.setPaused(p)
     }
 
@@ -428,19 +546,6 @@ internal object WebWallpaper {
     }
 
     // ------------------------------------------------------------ 路径/项目
-
-    private fun overrideDir(ctx: Context): File? {
-        return try {
-            val base = File(ctx.filesDir, ROOT_DIR)
-            val marker = File(base, CURRENT_FILE)
-            if (!marker.isFile) return null
-            val name = marker.readText().trim().ifBlank { return null }
-            val dir = File(base, name)
-            if (isWebProject(dir)) dir else null
-        } catch (_: Throwable) {
-            null
-        }
-    }
 
     private fun resolveDir(ctx: Context, path: String?): File? {
         if (path.isNullOrBlank()) return null
@@ -570,7 +675,16 @@ internal object WebWallpaper {
                 }
                 Log.d(TAG, "web asset: $rel (${file.length()} bytes)")
                 return try {
-                    WebResourceResponse(mimeType(file.name), null, FileInputStream(file))
+                    if (file.name.endsWith(".html", true) || file.name.endsWith(".htm", true)) {
+                        // 在页面脚本执行前注入媒体守卫
+                        val html = injectMediaGuard(file.readText(Charsets.UTF_8))
+                        Log.i(TAG, "media guard injected into $rel")
+                        WebResourceResponse(
+                            "text/html", "UTF-8",
+                            ByteArrayInputStream(html.toByteArray(Charsets.UTF_8)))
+                    } else {
+                        WebResourceResponse(mimeType(file.name), null, FileInputStream(file))
+                    }
                 } catch (t: Throwable) {
                     Log.w(TAG, "open web asset failed: $rel", t)
                     null
@@ -620,6 +734,9 @@ internal object WebWallpaper {
                             "(document.head||document.documentElement).appendChild(s);" +
                             "})();")
                     view.evaluateJavascript(js.toString(), null)
+                    view.evaluateJavascript(
+                        "(function(){return typeof window.__wePauseAll})()"
+                    ) { r -> Log.i(TAG, "media guard state: $r") }
                 } catch (t: Throwable) {
                     Log.w(TAG, "inject web wallpaper script failed", t)
                 }
@@ -639,6 +756,18 @@ internal object WebWallpaper {
             }
         }
         return wv
+    }
+
+    /** 把媒体守卫脚本插到页面最前面（doctype 之后），保证早于页面脚本执行。 */
+    private fun injectMediaGuard(html: String): String {
+        val trimmed = html.trimStart()
+        if (trimmed.startsWith("<!doctype", ignoreCase = true)) {
+            val end = html.indexOf('>')
+            if (end >= 0) {
+                return html.substring(0, end + 1) + MEDIA_GUARD_JS + html.substring(end + 1)
+            }
+        }
+        return MEDIA_GUARD_JS + html
     }
 
     /** 把 URL 路径安全地映射到壁纸目录内的文件。 */
@@ -677,10 +806,23 @@ internal object WebWallpaper {
         private var webView: WebView? = null
         private var paused = false
 
+        /**
+         * 已停止标记。创建任务通过 post 异步执行，如果 stop() 在任务执行前发生，
+         * 此时字段全为 null，销毁任务什么也做不了；若不拦截，创建任务随后仍会
+         * 建出 VirtualDisplay + WebView 并持续向 Surface 输出，导致多个 WebView
+         * 同时渲染（画面跳动）且退出后音频继续播放。
+         */
+        @Volatile
+        private var cancelled = false
+
         fun start() {
             val entry = projectEntry(dir)
 
             mainHandler.post {
+                if (cancelled) {
+                    Log.i(TAG, "skip cancelled renderer creation: ${dir.name}")
+                    return@post
+                }
                 try {
                     val dm = ctx.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
                     var vd: VirtualDisplay? = null
@@ -794,10 +936,13 @@ internal object WebWallpaper {
                     // 注意：不能用 pauseTimers()/resumeTimers()，它们会影响进程内
                     // 所有 WebView（包括应用内预览页），导致预览一直加载不出来。
                     if (p) {
+                        // 页面里的 audio/video 不受 WebView.onPause 控制，需显式暂停
+                        wv.evaluateJavascript(PAUSE_MEDIA_JS, null)
                         wv.onPause()
                         wv.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_WAIVED, true)
                     } else {
                         wv.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false)
+                        wv.evaluateJavascript(RESUME_MEDIA_JS, null)
                         wv.onResume()
                     }
                     Log.i(TAG, "web wallpaper ${if (p) "paused" else "resumed"}")
@@ -808,6 +953,7 @@ internal object WebWallpaper {
         }
 
         fun stop() {
+            cancelled = true
             val p = presentation
             val wv = webView
             val vd = display
@@ -816,6 +962,7 @@ internal object WebWallpaper {
             display = null
             mainHandler.post {
                 try {
+                    wv?.evaluateJavascript(PAUSE_MEDIA_JS, null)
                     wv?.stopLoading()
                     wv?.loadUrl("about:blank")
                     p?.dismiss()

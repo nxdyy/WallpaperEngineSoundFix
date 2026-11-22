@@ -377,6 +377,29 @@ class HookEntry : XposedModule() {
             chain.proceed()
         }
 
+        // 离开/回到预览页时暂停或恢复网页预览，避免退出后声音还在播放
+        val previewOnPause = previewClass.getDeclaredMethod("onPause")
+        hook(previewOnPause).intercept { chain ->
+            val result = chain.proceed()
+            try {
+                WebWallpaper.pausePreview()
+            } catch (t: Throwable) {
+                log(Log.WARN, TAG, "pause web preview failed", t)
+            }
+            result
+        }
+
+        val previewOnResume = previewClass.getDeclaredMethod("onResume")
+        hook(previewOnResume).intercept { chain ->
+            val result = chain.proceed()
+            try {
+                WebWallpaper.resumePreview()
+            } catch (t: Throwable) {
+                log(Log.WARN, TAG, "resume web preview failed", t)
+            }
+            result
+        }
+
         log(Log.INFO, TAG, "web wallpaper list hook installed")
     }
 
@@ -541,10 +564,11 @@ class HookEntry : XposedModule() {
                 log(Log.INFO, TAG, "web wallpaper imported: $name")
                 act.runOnUiThread {
                     Toast.makeText(act, "网页壁纸导入成功", Toast.LENGTH_SHORT).show()
+                    // 重建界面而不是在运行中修改列表，避免异步缩略图与条目错位
                     try {
-                        injectWebWallpapers(act, cl)
+                        act.recreate()
                     } catch (t: Throwable) {
-                        log(Log.WARN, TAG, "refresh web wallpaper list failed", t)
+                        log(Log.WARN, TAG, "recreate browse activity failed", t)
                     }
                 }
             } catch (t: Throwable) {
@@ -1795,8 +1819,8 @@ class HookEntry : XposedModule() {
         private const val CHANGELOG_VERSION_KEY = "we_soundfix_changelog_version"
         private const val API_BASE = "https://project.nxdyy.cn/WallpaperEngineSoundFix/"
         /** 与 build.gradle.kts 的 versionCode 保持一致，作为取不到模块信息时的回退值 */
-        private const val MODULE_VERSION_CODE = 6
-        private const val MODULE_VERSION_NAME = "1.5-beta"
+        private const val MODULE_VERSION_CODE = 7
+        private const val MODULE_VERSION_NAME = "1.5"
 
         /** 注入壁纸引擎设置的音量滑条标题和摘要，按设备语言匹配。 */
         private val PREF_I18N = mapOf(

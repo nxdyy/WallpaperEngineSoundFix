@@ -390,13 +390,31 @@ internal object WebWallpaper {
                 onRendererGone = { addPreview(activity, container, dir) })
             previewWebView = wv
             previewDir = dir
+            previewContainer = container
+            val metrics = activity.resources.displayMetrics
+            previewScreenW = metrics.widthPixels
+            previewScreenH = metrics.heightPixels
+            val geo = geometryFor(activity, dir, previewScreenW, previewScreenH)
+            previewOffsetX = geo.offsetX.toFloat()
+            previewOffsetY = geo.offsetY.toFloat()
+            val scale = renderScale(activity)
+            val layoutW = (geo.contentW * scale).toInt().coerceAtLeast(1)
+            val layoutH = (geo.contentH * scale).toInt().coerceAtLeast(1)
             container.removeAllViews()
-            container.addView(wv, android.view.ViewGroup.LayoutParams(
-                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                android.view.ViewGroup.LayoutParams.MATCH_PARENT))
+            container.addView(wv, android.view.ViewGroup.LayoutParams(layoutW, layoutH))
+            if (scale < 0.999f) {
+                // 与桌面渲染保持一致：按渲染精度缩小布局再放大
+                wv.scaleX = 1f / scale
+                wv.scaleY = 1f / scale
+                wv.pivotX = 0f
+                wv.pivotY = 0f
+            }
+            wv.x = -previewOffsetX
+            wv.y = -previewOffsetY
             val entry = projectEntry(dir)
             loadWhenLaidOut(wv, "https://$host/$entry")
-            Log.i(TAG, "web preview started: ${dir.name}")
+            Log.i(TAG, "web preview started: ${dir.name}, " +
+                "${geo.contentW}x${geo.contentH}, offset=${geo.offsetX},${geo.offsetY}")
         } catch (t: Throwable) {
             Log.e(TAG, "web preview failed", t)
         }
@@ -406,6 +424,7 @@ internal object WebWallpaper {
         val wv = previewWebView ?: return
         previewWebView = null
         previewDir = null
+        previewContainer = null
         // 渲染进程可能已经死亡，逐步 try 确保 destroy 一定执行
         try { wv.evaluateJavascript(PAUSE_MEDIA_JS, null) } catch (_: Throwable) {}
         try { wv.onPause() } catch (_: Throwable) {}
@@ -438,6 +457,11 @@ internal object WebWallpaper {
 
     private var previewWebView: WebView? = null
     private var previewDir: File? = null
+    private var previewContainer: android.view.ViewGroup? = null
+    private var previewScreenW = 0
+    private var previewScreenH = 0
+    private var previewOffsetX = 0f
+    private var previewOffsetY = 0f
 
     /**
      * 等 WebView 完成布局再加载：不少壁纸脚本在加载时读取 innerWidth/innerHeight
@@ -463,18 +487,16 @@ internal object WebWallpaper {
 
     // ------------------------------------------------------------ 自定义选项 UI
 
-    /** 把自定义选项填充到预览页自带的属性抽屉（propertiesContainer）。 */
+    /** 把网页大小与自定义选项填充到预览页自带的属性抽屉（propertiesContainer）。 */
     fun addPreviewProperties(activity: Activity, dir: File) {
         try {
-            val defs = projectProperties(dir) ?: return
-            if (defs.length() == 0) return
             val id = activity.resources.getIdentifier(
                 "propertiesContainer", "id", activity.packageName)
             if (id == 0) return
             val container = activity.findViewById<ViewGroup>(id) ?: return
-            // 原版属性 Fragment 对网页壁纸是空的，替换成网页的自定义选项
+            // 原版属性 Fragment 对网页壁纸是空的，替换成网页大小与自定义选项
             container.removeAllViews()
-            val view = buildPropertiesView(activity, dir) ?: return
+            val view = buildPropertiesView(activity, dir)
             container.addView(view, ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT))
@@ -484,32 +506,122 @@ internal object WebWallpaper {
         }
     }
 
-    /** 构建属性设置视图（嵌入预览页属性抽屉）。 */
-    private fun buildPropertiesView(ctx: Context, dir: File): View? {
-        val defs = projectProperties(dir) ?: return null
-        if (defs.length() == 0) return null
-        val filePath = filePathFor(ctx, dir)
-        val saved = savedProperties(ctx, filePath)
-
-        val items = ArrayList<Pair<String, JSONObject>>()
-        val keys = defs.keys()
-        while (keys.hasNext()) {
-            val key = keys.next()
-            val item = defs.optJSONObject(key) ?: continue
-            items.add(key to item)
-        }
-        items.sortBy { it.second.optInt("order", Int.MAX_VALUE) }
-
+    /** 构建属性设置视图（嵌入预览页属性抽屉），第一项是网页大小。 */
+    private fun buildPropertiesView(ctx: Context, dir: File): View {
         val scroll = android.widget.ScrollView(ctx)
         scroll.isFillViewport = true
         val box = android.widget.LinearLayout(ctx)
         box.orientation = android.widget.LinearLayout.VERTICAL
         box.setPadding(dp(ctx, 16), dp(ctx, 8), dp(ctx, 16), dp(ctx, 24))
         scroll.addView(box)
-        for ((key, def) in items) {
-            addPropertyRow(ctx, box, dir, key, def, saved)
+
+        addSizeRows(ctx, box, dir)
+
+        val defs = projectProperties(dir)
+        if (defs != null && defs.length() > 0) {
+            val filePath = filePathFor(ctx, dir)
+            val saved = savedProperties(ctx, filePath)
+            val items = ArrayList<Pair<String, JSONObject>>()
+            val keys = defs.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                val item = defs.optJSONObject(key) ?: continue
+                items.add(key to item)
+            }
+            items.sortBy { it.second.optInt("order", Int.MAX_VALUE) }
+            for ((key, def) in items) {
+                addPropertyRow(ctx, box, dir, key, def, saved)
+            }
         }
         return scroll
+    }
+
+    /** 抽屉第一项：网页大小选择 + 溢出方向的位置调节。 */
+    private fun addSizeRows(ctx: Context, box: android.widget.LinearLayout, dir: File) {
+        val title = android.widget.TextView(ctx)
+        title.text = htmlText("网页大小")
+        box.addView(title)
+
+        val spinner = android.widget.Spinner(ctx)
+        val names = WEB_SIZE_OPTIONS.map { it.second }
+        val values = WEB_SIZE_OPTIONS.map { it.first }
+        spinner.adapter = android.widget.ArrayAdapter(
+            ctx, android.R.layout.simple_spinner_dropdown_item, names)
+        spinner.setSelection(values.indexOf(webSize(ctx, dir)).coerceAtLeast(0), false)
+        spinner.onItemSelectedListener = object :
+            android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(
+                parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long
+            ) {
+                val value = values.getOrNull(position) ?: return
+                if (value == webSize(ctx, dir)) return
+                saveWebSize(ctx, dir, value)
+                // 比例变化后网页需要按新视口重新排版
+                if (ctx is Activity) {
+                    val activity = ctx
+                    val container = previewContainer
+                    if (container != null) {
+                        addPreview(activity, container, dir)
+                        box.post { addPreviewProperties(activity, dir) }
+                    }
+                }
+                scheduleApplySettings()
+            }
+
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+        }
+        box.addView(spinner)
+
+        val metrics = ctx.resources.displayMetrics
+        val screenW = metrics.widthPixels
+        val screenH = metrics.heightPixels
+        val geo = geometryFor(ctx, dir, screenW, screenH)
+        if (geo.contentW > screenW) {
+            addOffsetRow(ctx, box, dir, true, "水平位置")
+        }
+        if (geo.contentH > screenH) {
+            addOffsetRow(ctx, box, dir, false, "垂直位置")
+        }
+
+        val divider = View(ctx)
+        val lp = android.widget.LinearLayout.LayoutParams(
+            android.view.ViewGroup.LayoutParams.MATCH_PARENT, dp(ctx, 1))
+        lp.topMargin = dp(ctx, 12)
+        lp.bottomMargin = dp(ctx, 4)
+        divider.layoutParams = lp
+        divider.setBackgroundColor(0x33FFFFFF)
+        box.addView(divider)
+    }
+
+    private fun addOffsetRow(
+        ctx: Context,
+        box: android.widget.LinearLayout,
+        dir: File,
+        horizontal: Boolean,
+        labelText: String
+    ) {
+        val label = android.widget.TextView(ctx)
+        val current = webOffset(ctx, dir, horizontal)
+        label.text = htmlText("$labelText（${current}%）")
+        val sb = android.widget.SeekBar(ctx)
+        sb.max = 100
+        sb.progress = current
+        sb.setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(
+                seekBar: android.widget.SeekBar?, progress: Int, fromUser: Boolean
+            ) {
+                label.text = htmlText("$labelText（${progress}%）")
+                if (fromUser) {
+                    saveWebOffset(ctx, dir, horizontal, progress)
+                    applyGeometryToDir(ctx, dir)
+                }
+            }
+
+            override fun onStartTrackingTouch(seekBar: android.widget.SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: android.widget.SeekBar?) {}
+        })
+        box.addView(label)
+        box.addView(sb)
     }
 
     private fun addPropertyRow(
@@ -939,6 +1051,144 @@ internal object WebWallpaper {
         }
     }
 
+    // ------------------------------------------------------------ 网页大小与位置
+
+    /** 网页大小选项：值（宽:高）→ 显示名称，screen 表示跟随屏幕。 */
+    private val WEB_SIZE_OPTIONS = listOf(
+        "screen" to "跟随屏幕",
+        "16:9" to "16 : 9",
+        "16:10" to "16 : 10",
+        "4:3" to "4 : 3",
+        "3:2" to "3 : 2",
+        "21:9" to "21 : 9",
+        "1:1" to "1 : 1",
+        "9:16" to "9 : 16"
+    )
+
+    private fun sizePrefKey(ctx: Context, dir: File): String =
+        "web_wallpaper_size_${filePathFor(ctx, dir)}"
+
+    private fun offsetPrefKey(ctx: Context, dir: File, horizontal: Boolean): String =
+        "web_wallpaper_offset_${if (horizontal) "x" else "y"}_${filePathFor(ctx, dir)}"
+
+    fun webSize(ctx: Context, dir: File): String {
+        return try {
+            defaultPrefs(ctx)?.getString(sizePrefKey(ctx, dir), "screen") ?: "screen"
+        } catch (_: Throwable) {
+            "screen"
+        }
+    }
+
+    private fun saveWebSize(ctx: Context, dir: File, value: String) {
+        try {
+            defaultPrefs(ctx)?.edit()?.putString(sizePrefKey(ctx, dir), value)?.apply()
+        } catch (_: Throwable) {
+        }
+    }
+
+    /** 位置百分比 0~100，50 为居中。 */
+    private fun webOffset(ctx: Context, dir: File, horizontal: Boolean): Int {
+        return try {
+            (defaultPrefs(ctx)?.getInt(offsetPrefKey(ctx, dir, horizontal), 50) ?: 50)
+                .coerceIn(0, 100)
+        } catch (_: Throwable) {
+            50
+        }
+    }
+
+    private fun saveWebOffset(ctx: Context, dir: File, horizontal: Boolean, value: Int) {
+        try {
+            defaultPrefs(ctx)?.edit()
+                ?.putInt(offsetPrefKey(ctx, dir, horizontal), value.coerceIn(0, 100))?.apply()
+        } catch (_: Throwable) {
+        }
+    }
+
+    /**
+     * 按所选网页大小计算实际渲染尺寸与位置。
+     * 非屏幕比例时按 cover 铺满屏幕，溢出的方向可以通过位置百分比平移。
+     */
+    private data class Geometry(
+        val contentW: Int,
+        val contentH: Int,
+        val offsetX: Int,
+        val offsetY: Int
+    )
+
+    private fun geometryFor(ctx: Context, dir: File, screenW: Int, screenH: Int): Geometry {
+        val w = screenW.coerceAtLeast(1)
+        val h = screenH.coerceAtLeast(1)
+        var contentW = w
+        var contentH = h
+        val size = webSize(ctx, dir)
+        if (size != "screen") {
+            val parts = size.split(":")
+            val rw = parts.getOrNull(0)?.toDoubleOrNull() ?: 0.0
+            val rh = parts.getOrNull(1)?.toDoubleOrNull() ?: 0.0
+            if (rw > 0 && rh > 0) {
+                val ratio = rw / rh
+                if (ratio >= w.toDouble() / h) {
+                    contentH = h
+                    contentW = Math.round(h * ratio).toInt()
+                } else {
+                    contentW = w
+                    contentH = Math.round(w / ratio).toInt()
+                }
+            }
+        }
+        contentW = contentW.coerceAtLeast(1)
+        contentH = contentH.coerceAtLeast(1)
+        val rangeX = (contentW - w).coerceAtLeast(0)
+        val rangeY = (contentH - h).coerceAtLeast(0)
+        val offsetX = if (rangeX > 0) {
+            Math.round(rangeX * webOffset(ctx, dir, true) / 100f).toInt()
+        } else {
+            0
+        }
+        val offsetY = if (rangeY > 0) {
+            Math.round(rangeY * webOffset(ctx, dir, false) / 100f).toInt()
+        } else {
+            0
+        }
+        return Geometry(contentW, contentH, offsetX, offsetY)
+    }
+
+    /** 位置改变后只平移网页，不重新加载页面。 */
+    private fun applyGeometryToDir(ctx: Context, dir: File) {
+        for (r in renderers.values) {
+            if (r.dir.absolutePath == dir.absolutePath) r.applyGeometry()
+        }
+        val wv = previewWebView
+        if (wv != null && previewDir?.absolutePath == dir.absolutePath) {
+            updatePreviewGeometry(ctx, dir, wv)
+        }
+    }
+
+    private fun updatePreviewGeometry(ctx: Context, dir: File, wv: WebView) {
+        try {
+            val metrics = ctx.resources.displayMetrics
+            val screenW = if (previewScreenW > 0) previewScreenW else metrics.widthPixels
+            val screenH = if (previewScreenH > 0) previewScreenH else metrics.heightPixels
+            val geo = geometryFor(ctx, dir, screenW, screenH)
+            previewOffsetX = geo.offsetX.toFloat()
+            previewOffsetY = geo.offsetY.toFloat()
+            val scale = renderScale(ctx)
+            val layoutW = (geo.contentW * scale).toInt().coerceAtLeast(1)
+            val layoutH = (geo.contentH * scale).toInt().coerceAtLeast(1)
+            wv.layoutParams = android.widget.FrameLayout.LayoutParams(layoutW, layoutH)
+            if (scale < 0.999f) {
+                wv.scaleX = 1f / scale
+                wv.scaleY = 1f / scale
+                wv.pivotX = 0f
+                wv.pivotY = 0f
+            }
+            wv.x = -previewOffsetX
+            wv.y = -previewOffsetY
+        } catch (t: Throwable) {
+            Log.w(TAG, "update preview geometry failed", t)
+        }
+    }
+
     /** 壁纸引擎已保存的用户属性（JSON 对象，值形如 {"value": ...}）。 */
     private fun savedProperties(ctx: Context, filePath: String): JSONObject? {
         val raw = defaultPrefs(ctx)?.getString("wp_properties_$filePath", null) ?: return null
@@ -1276,10 +1526,17 @@ internal object WebWallpaper {
         /** WebView 内部渲染倍率，低于 1 时按比例缩小布局再放大显示 */
         private val viewScale: Float = renderScale(ctx)
 
+        /** 创建时的网页大小设置，用于判断是否需要重建渲染器。 */
+        private val sizeOption: String = webSize(ctx, dir)
+
         private var display: VirtualDisplay? = null
         private var presentation: Presentation? = null
         private var webView: WebView? = null
         private var paused = false
+
+        /** 网页左上角相对屏幕左上角的负向偏移（像素），用于非屏幕比例时的位置调节。 */
+        private var offsetX = 0f
+        private var offsetY = 0f
 
         /** 渲染进程在壁纸不可见时死亡，等恢复可见再重建，避免后台加载页面并出声。 */
         private var needsRecreate = false
@@ -1353,6 +1610,10 @@ internal object WebWallpaper {
                         } catch (_: Throwable) {
                         }
                     }
+                    // 按“网页大小”设置计算渲染尺寸；非屏幕比例时按 cover 铺满并可平移
+                    val geo = geometryFor(ctx, dir, width, height)
+                    offsetX = geo.offsetX.toFloat()
+                    offsetY = geo.offsetY.toFloat()
                     // 降低渲染倍率：虚拟屏仍是全屏尺寸，WebView 以较小尺寸布局后放大，
                     // 这样画面仍铺满屏幕，但内核只按缩小后的分辨率光栅化。
                     val root = android.widget.FrameLayout(p.context)
@@ -1363,10 +1624,14 @@ internal object WebWallpaper {
                         wv.pivotX = 0f
                         wv.pivotY = 0f
                     }
-                    val viewW = (width * viewScale).toInt().coerceAtLeast(1)
-                    val viewH = (height * viewScale).toInt().coerceAtLeast(1)
+                    val viewW = (geo.contentW * viewScale).toInt().coerceAtLeast(1)
+                    val viewH = (geo.contentH * viewScale).toInt().coerceAtLeast(1)
                     root.addView(wv, android.widget.FrameLayout.LayoutParams(viewW, viewH))
-                    Log.i(TAG, "web view render size: ${viewW}x$viewH (scale=$viewScale)")
+                    wv.x = -offsetX
+                    wv.y = -offsetY
+                    Log.i(TAG, "web view render size: ${viewW}x$viewH (scale=$viewScale), " +
+                        "content=${geo.contentW}x${geo.contentH}, " +
+                        "offset=${geo.offsetX},${geo.offsetY}")
                     p.setContentView(root, ViewGroup.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT))
@@ -1385,23 +1650,24 @@ internal object WebWallpaper {
         }
 
 
-        /** 同一个壁纸目录、同一个输出 Surface、同样尺寸时无需重建。 */
+        /** 同一个壁纸目录、同一个输出 Surface、同样尺寸与设置时无需重建。 */
         fun matches(target: File, targetSurface: android.view.Surface,
                     w: Int, h: Int): Boolean {
             return target.absolutePath == dir.absolutePath &&
                 targetSurface === surface && w == width && h == height &&
-                viewScale == renderScale(ctx)
+                viewScale == renderScale(ctx) && sizeOption == webSize(ctx, dir)
         }
 
-        /** 事件坐标是屏幕坐标，需要缩放到 WebView 的本地布局坐标。 */
+        /** 事件坐标是屏幕坐标，需要先加上平移再缩放到 WebView 的本地布局坐标。 */
         fun dispatchTouch(event: android.view.MotionEvent): Boolean {
             val wv = webView ?: return false
             return try {
                 val copy = android.view.MotionEvent.obtain(event)
                 try {
-                    if (viewScale < 0.999f) {
+                    if (viewScale < 0.999f || offsetX != 0f || offsetY != 0f) {
                         val m = android.graphics.Matrix()
-                        m.setScale(viewScale, viewScale)
+                        m.setTranslate(offsetX, offsetY)
+                        if (viewScale < 0.999f) m.postScale(viewScale, viewScale)
                         copy.transform(m)
                     }
                     wv.dispatchTouchEvent(copy)
@@ -1411,6 +1677,30 @@ internal object WebWallpaper {
                 true
             } catch (_: Throwable) {
                 false
+            }
+        }
+
+        /** 位置设置变化时平移网页，不重新加载页面。 */
+        fun applyGeometry() {
+            mainHandler.post {
+                val wv = webView ?: return@post
+                try {
+                    val geo = geometryFor(ctx, dir, width, height)
+                    offsetX = geo.offsetX.toFloat()
+                    offsetY = geo.offsetY.toFloat()
+                    val viewW = (geo.contentW * viewScale).toInt().coerceAtLeast(1)
+                    val viewH = (geo.contentH * viewScale).toInt().coerceAtLeast(1)
+                    val lp = wv.layoutParams
+                    if (lp != null && (lp.width != viewW || lp.height != viewH)) {
+                        lp.width = viewW
+                        lp.height = viewH
+                        wv.layoutParams = lp
+                    }
+                    wv.x = -offsetX
+                    wv.y = -offsetY
+                } catch (t: Throwable) {
+                    Log.w(TAG, "apply web geometry failed", t)
+                }
             }
         }
 

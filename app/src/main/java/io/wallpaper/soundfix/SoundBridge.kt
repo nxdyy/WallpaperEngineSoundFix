@@ -114,6 +114,22 @@ object SoundBridge {
     }
 
     /**
+     * 切换壁纸（例如场景壁纸 → 网页壁纸）时停止所有场景声音。
+     * 只暂停并回到开头，不销毁 MediaPlayer，避免 native 层仍持有 id 时出现野指针。
+     */
+    fun stopAll() {
+        pausedIds.clear()
+        globalPausedIds.clear()
+        for ((_, mp) in players) {
+            try {
+                if (mp.isPlaying) mp.pause()
+                mp.seekTo(0)
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
+    /**
      * 壁纸整体暂停（离开桌面/省电）：暂停所有播放中的声音。
      * 标记记入 globalPausedIds（与引擎主动 Pause 的 pausedIds 互不干扰），
      * 恢复时只重启这些声音，不触碰引擎自己暂停的声音。

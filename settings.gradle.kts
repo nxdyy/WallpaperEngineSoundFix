@@ -22,5 +22,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Wallpaper Engine Sound Fix"
+rootProject.name = "WallpaperEnginePlus"
 include(":app")

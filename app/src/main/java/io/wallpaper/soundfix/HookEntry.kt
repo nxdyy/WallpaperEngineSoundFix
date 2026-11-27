@@ -142,11 +142,39 @@ class HookEntry : XposedModule() {
             log(Log.ERROR, TAG, "hook download progress failed", t)
         }
 
+        // 连接电脑时上报的设备名加 [WEP] 前缀
+        try {
+            hookDeviceName(cl)
+        } catch (t: Throwable) {
+            log(Log.ERROR, TAG, "hook device name failed", t)
+        }
+
+        // 长按“分享文件”：网页壁纸打包为 ZIP，并绕开目标应用的 FileProvider 冲突
+        try {
+            hookShareWallpaper(cl)
+        } catch (t: Throwable) {
+            log(Log.ERROR, TAG, "hook wallpaper share failed", t)
+        }
+
+        // 网页壁纸的详情页数据
+        try {
+            hookWebWallpaperDetails(cl)
+        } catch (t: Throwable) {
+            log(Log.ERROR, TAG, "hook web wallpaper details failed", t)
+        }
+
         // 壁纸类型角标（传输完成后自动判定并缓存）
         try {
             hookWallpaperTypeBadges(cl)
         } catch (t: Throwable) {
             log(Log.ERROR, TAG, "hook wallpaper type badge failed", t)
+        }
+
+        // 网页壁纸列表缩略图的 GIF 动画
+        try {
+            hookGifPreviews()
+        } catch (t: Throwable) {
+            log(Log.ERROR, TAG, "hook gif previews failed", t)
         }
 
         // mpkg 场景壁纸传输/导入完成后的声音风险提示
@@ -190,6 +218,13 @@ class HookEntry : XposedModule() {
         } catch (t: Throwable) {
             log(Log.ERROR, TAG, "hook web wallpaper import failed", t)
         }
+
+        // 底栏切换页面后保持标题的 PLUS 标识
+        try {
+            hookNavBranding(cl)
+        } catch (t: Throwable) {
+            log(Log.ERROR, TAG, "hook nav branding failed", t)
+        }
     }
 
     /**
@@ -218,6 +253,7 @@ class HookEntry : XposedModule() {
                         h = ctx.resources.displayMetrics.heightPixels
                     }
                     if (WebWallpaper.start(ctx, dir, holder.surface, w, h, engine)) {
+                        stopSceneAudio()
                         enableWallpaperTouch(engine)
                         log(Log.INFO, TAG, "web wallpaper takeover on surfaceCreated")
                         return@intercept null
@@ -251,6 +287,7 @@ class HookEntry : XposedModule() {
                             h = ctx.resources.displayMetrics.heightPixels
                         }
                         if (WebWallpaper.start(ctx, dir, surface, w, h, engine)) {
+                            stopSceneAudio()
                             enableWallpaperTouch(engine)
                             log(Log.INFO, TAG, "web wallpaper takeover on loadWallpaper")
                             return@intercept null
@@ -306,6 +343,22 @@ class HookEntry : XposedModule() {
                 injectWebWallpapers(chain.thisObject, cl)
             } catch (t: Throwable) {
                 log(Log.WARN, TAG, "inject web wallpapers failed", t)
+            }
+            try {
+                applyPlusBranding(chain.thisObject as? android.app.Activity)
+            } catch (t: Throwable) {
+                log(Log.WARN, TAG, "apply plus branding failed", t)
+            }
+            result
+        }
+
+        // 返回主页时 ActionBar 标题可能被系统重置，重新应用一次
+        val browseOnResume = browseClass.getDeclaredMethod("onResume")
+        hook(browseOnResume).intercept { chain ->
+            val result = chain.proceed()
+            try {
+                applyPlusBranding(chain.thisObject as? android.app.Activity)
+            } catch (_: Throwable) {
             }
             result
         }
@@ -973,6 +1026,158 @@ class HookEntry : XposedModule() {
     }
 
     /**
+     * 在壁纸引擎 ActionBar 的标题与副标题后追加醒目的 PLUS 徽章。
+     * 全部通过反射调用，避免模块与目标应用加载了不同的 AppCompat 类。
+     * NavigationUI 切换页面时会重设标题，因此保留已有文本，只追加徽章。
+     */
+    private fun applyPlusBranding(activity: android.app.Activity?) {
+        if (activity == null) return
+        try {
+            val bar = activity.javaClass.getMethod("getSupportActionBar")
+                .invoke(activity) ?: return
+            val density = activity.resources.displayMetrics.density
+            val setTitle = bar.javaClass.getMethod("setTitle", CharSequence::class.java)
+            val setSubtitle = bar.javaClass.getMethod("setSubtitle", CharSequence::class.java)
+            val currentTitle = bar.javaClass.getMethod("getTitle")
+                .invoke(bar)?.toString().orEmpty()
+            if (!currentTitle.endsWith("PLUS")) {
+                setTitle.invoke(bar, plusTitle(currentTitle.ifBlank { "Wallpaper Engine" }, density))
+            }
+            val currentSubtitle = bar.javaClass.getMethod("getSubtitle")
+                .invoke(bar)?.toString().orEmpty()
+            if (!currentSubtitle.endsWith("PLUS")) {
+                setSubtitle.invoke(
+                    bar, plusTitle(currentSubtitle.ifBlank { "壁纸引擎" }, density))
+            }
+        } catch (_: Throwable) {
+        }
+    }
+
+    /** 底栏切换页面时 NavigationUI 会重设标题，在其后重新追加 PLUS。 */
+    private fun hookNavBranding(cl: ClassLoader) {
+        try {
+            val activityKt = cl.loadClass("androidx.navigation.ui.ActivityKt")
+            val appCompat = cl.loadClass("androidx.appcompat.app.AppCompatActivity")
+            val navController = cl.loadClass("androidx.navigation.NavController")
+            val appBarConfig = cl.loadClass("androidx.navigation.ui.AppBarConfiguration")
+            val m = activityKt.getDeclaredMethod(
+                "setupActionBarWithNavController",
+                appCompat, navController, appBarConfig)
+            hook(m).intercept { chain ->
+                val result = chain.proceed()
+                try {
+                    val activity = chain.getArg(0) as? android.app.Activity
+                    if (activity?.javaClass?.name ==
+                        "io.wallpaperengine.weclient.BrowseActivity") {
+                        addBrandingListener(chain.getArg(1), activity)
+                    }
+                } catch (t: Throwable) {
+                    log(Log.WARN, TAG, "add nav branding listener failed", t)
+                }
+                result
+            }
+            log(Log.INFO, TAG, "nav branding hook installed")
+        } catch (t: Throwable) {
+            log(Log.WARN, TAG, "hook nav branding failed", t)
+        }
+    }
+
+    private fun addBrandingListener(navController: Any?, activity: android.app.Activity) {
+        if (navController == null) return
+        try {
+            val loader = navController.javaClass.classLoader ?: return
+            val listenerClass = loader.loadClass(
+                "androidx.navigation.NavController\$OnDestinationChangedListener")
+            val proxy = java.lang.reflect.Proxy.newProxyInstance(
+                loader, arrayOf(listenerClass)
+            ) { _, method, _ ->
+                when (method.name) {
+                    "onDestinationChanged" -> {
+                        // 排在 NavigationUI 的监听之后执行，等它先设置好标题
+                        activity.window.decorView.post { applyPlusBranding(activity) }
+                        null
+                    }
+                    "hashCode" -> System.identityHashCode(method)
+                    "equals" -> false
+                    "toString" -> "WESoundFixBrandingListener"
+                    else -> null
+                }
+            }
+            navController.javaClass.getMethod(
+                "addOnDestinationChangedListener", listenerClass)
+                .invoke(navController, proxy)
+        } catch (t: Throwable) {
+            log(Log.WARN, TAG, "add branding listener failed", t)
+        }
+    }
+
+    private fun plusTitle(base: String, density: Float): CharSequence {
+        val text = "$base PLUS"
+        val sp = android.text.SpannableString(text)
+        sp.setSpan(
+            PlusBadgeSpan(0xFF3D8BFF.toInt(), android.graphics.Color.WHITE, density),
+            base.length + 1,
+            text.length,
+            android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        return sp
+    }
+
+    /** 圆角背景的 PLUS 徽章，绘制在 ActionBar 标题文字之后。 */
+    private class PlusBadgeSpan(
+        private val bgColor: Int,
+        private val fgColor: Int,
+        private val density: Float
+    ) : android.text.style.ReplacementSpan() {
+        override fun getSize(
+            paint: android.graphics.Paint,
+            text: CharSequence,
+            start: Int,
+            end: Int,
+            fm: android.graphics.Paint.FontMetricsInt?
+        ): Int {
+            val oldSize = paint.textSize
+            paint.textSize = oldSize * 0.66f
+            val w = paint.measureText(text, start, end) + density * 10f
+            paint.textSize = oldSize
+            return w.toInt()
+        }
+
+        override fun draw(
+            canvas: android.graphics.Canvas,
+            text: CharSequence,
+            start: Int,
+            end: Int,
+            x: Float,
+            top: Int,
+            y: Int,
+            bottom: Int,
+            paint: android.graphics.Paint
+        ) {
+            val label = text.subSequence(start, end).toString()
+            val oldSize = paint.textSize
+            val oldColor = paint.color
+            val oldAlign = paint.textAlign
+            val badgeSize = oldSize * 0.66f
+            paint.textSize = badgeSize
+            val textW = paint.measureText(label)
+            val padH = density * 5f
+            val w = textW + padH * 2f
+            val h = badgeSize * 1.5f
+            val centerY = (top + bottom) / 2f
+            val rect = android.graphics.RectF(x, centerY - h / 2f, x + w, centerY + h / 2f)
+            paint.color = bgColor
+            canvas.drawRoundRect(rect, h / 2f, h / 2f, paint)
+            paint.color = fgColor
+            paint.textAlign = android.graphics.Paint.Align.CENTER
+            val baseY = centerY - (paint.ascent() + paint.descent()) / 2f
+            canvas.drawText(label, x + w / 2f, baseY, paint)
+            paint.textSize = oldSize
+            paint.color = oldColor
+            paint.textAlign = oldAlign
+        }
+    }
+
+    /**
      * 壁纸自定义页面汉化：
      * 所有属性标题和下拉选项都经过 WallpaperProperties.localizeText，
      * 在此把第三方壁纸直接写死的英文（Flip、Audio recording 等）
@@ -1057,6 +1262,28 @@ class HookEntry : XposedModule() {
     }
 
     /**
+     * 列表封面收到静态 Bitmap（GIF 第一帧）后，在下一帧替换为 AnimatedImageDrawable，
+     * 让网页壁纸的 preview.gif 在列表里正常播放动画。
+     * 先让原版完成加载，避免干扰异步回调导致封面错位。
+     */
+    private fun hookGifPreviews() {
+        val method = android.widget.ImageView::class.java.getDeclaredMethod(
+            "setImageBitmap", android.graphics.Bitmap::class.java)
+        hook(method).intercept { chain ->
+            val result = chain.proceed()
+            try {
+                val view = chain.thisObject as? android.widget.ImageView
+                if (view != null) {
+                    view.post { GifPreview.applyGif(view) }
+                }
+            } catch (_: Throwable) {
+            }
+            result
+        }
+        log(Log.INFO, TAG, "gif preview hook installed")
+    }
+
+    /**
      * 将 BrowseActivity 顶部的连接状态条改为下载进度显示：
      * 文本替换为“正在从…下载… / 标题 / 进度 / 百分比 | 速度”，
      * 背景绿色条按下载比例填充。
@@ -1128,6 +1355,339 @@ class HookEntry : XposedModule() {
     }
 
     /**
+     * 连接电脑时上报的设备名加 [WEP] 前缀，方便在电脑端区分装有本模块的客户端。
+     * 电脑端“移动设备”列表的大标题来自 TransferService 认证时传入的设备名，
+     * 即 Util.getCustomDeviceName()（读取系统 Settings.Global 的 device_name）。
+     */
+    private fun hookDeviceName(cl: ClassLoader) {
+        val cls = cl.loadClass("io.wallpaperengine.weutil.Util\$Companion")
+        val method = cls.getDeclaredMethod("getCustomDeviceName", Context::class.java)
+        hook(method).intercept { chain ->
+            val name = chain.proceed() as? String ?: ""
+            if (name.startsWith("[WEP]")) name else "[WEP] $name"
+        }
+        log(Log.INFO, TAG, "device name branding hook installed")
+    }
+
+    // ------------------------------------------------------------ 分享与详情页
+
+    /**
+     * 接管长按菜单的“分享文件”：
+     * 网页壁纸目录打包成 ZIP 后分享；其余文件优先走 FileProvider，
+     * 不可用时（例如与原版应用存在 authority 冲突）写入 MediaStore 兜底，避免崩溃。
+     */
+    private fun hookShareWallpaper(cl: ClassLoader) {
+        try {
+            val browseClass = cl.loadClass("io.wallpaperengine.weclient.BrowseActivity")
+            val wallClass = cl.loadClass("io.wallpaperengine.weutil.WallpaperInfoSparse")
+            val dialogClass = cl.loadClass("androidx.appcompat.app.AlertDialog")
+            val method = browseClass.getDeclaredMethod(
+                "onWallpaperLongClick\$lambda\$60",
+                dialogClass, wallClass, browseClass, android.view.View::class.java)
+            hook(method).intercept { chain ->
+                try {
+                    val dialog = chain.getArg(0) as? android.app.Dialog
+                    val wall = chain.getArg(1)
+                    val activity = chain.getArg(2) as? android.app.Activity
+                    if (activity != null && wall != null) {
+                        dialog?.dismiss()
+                        shareWallpaper(activity, wall)
+                        return@intercept null
+                    }
+                } catch (t: Throwable) {
+                    log(Log.WARN, TAG, "share wallpaper failed", t)
+                }
+                chain.proceed()
+            }
+            log(Log.INFO, TAG, "wallpaper share hook installed")
+        } catch (t: Throwable) {
+            log(Log.WARN, TAG, "hook wallpaper share failed", t)
+        }
+    }
+
+    private fun shareWallpaper(activity: android.app.Activity, wall: Any) {
+        val title = try {
+            wall.javaClass.getMethod("getTitle").invoke(wall) as? String
+        } catch (_: Throwable) {
+            null
+        } ?: "wallpaper"
+        val filePath = try {
+            wall.javaClass.getMethod("getFilePath").invoke(wall) as? String
+        } catch (_: Throwable) {
+            null
+        } ?: return
+        val isLocal = try {
+            wall.javaClass.getMethod("isLocal").invoke(wall) as? Boolean ?: false
+        } catch (_: Throwable) {
+            false
+        }
+
+        // 本地导入的壁纸本身就是 content:// URI，直接分享
+        if (isLocal && filePath.startsWith("content://")) {
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "video/*"
+                putExtra(Intent.EXTRA_SUBJECT, title)
+                putExtra(Intent.EXTRA_STREAM, Uri.parse(filePath))
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            activity.startActivity(Intent.createChooser(intent, null))
+            return
+        }
+
+        val src = if (filePath.startsWith("/")) {
+            java.io.File(filePath)
+        } else {
+            java.io.File(activity.filesDir, filePath)
+        }
+        if (!src.exists()) {
+            Toast.makeText(activity, "分享失败：文件不存在", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val packaging = src.isDirectory
+        Toast.makeText(
+            activity,
+            if (packaging) "正在打包网页壁纸…" else "正在准备分享…",
+            Toast.LENGTH_SHORT
+        ).show()
+
+        Thread {
+            try {
+                val shareFile: java.io.File
+                val mime: String
+                if (packaging) {
+                    val base = sanitizeFileName(title).ifBlank { "webwallpaper" }
+                    val zip = java.io.File(activity.cacheDir, "share/$base.zip")
+                    zip.parentFile?.mkdirs()
+                    zipDirectory(src, zip)
+                    shareFile = zip
+                    mime = "application/zip"
+                } else {
+                    shareFile = src
+                    mime = shareMimeFor(src.name)
+                }
+                val uri = fileProviderUri(activity, shareFile)
+                    ?: mediaStoreUri(activity, shareFile, mime)
+                activity.runOnUiThread {
+                    try {
+                        if (activity.isFinishing) return@runOnUiThread
+                        if (uri == null) {
+                            Toast.makeText(
+                                activity, "分享失败：无法创建文件 URI", Toast.LENGTH_LONG).show()
+                            return@runOnUiThread
+                        }
+                        val intent = Intent(Intent.ACTION_SEND).apply {
+                            type = mime
+                            putExtra(Intent.EXTRA_SUBJECT, title)
+                            putExtra(Intent.EXTRA_STREAM, uri)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        activity.startActivity(Intent.createChooser(intent, null))
+                    } catch (t: Throwable) {
+                        Toast.makeText(
+                            activity, "分享失败：${t.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            } catch (t: Throwable) {
+                activity.runOnUiThread {
+                    Toast.makeText(
+                        activity, "打包失败：${t.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }.start()
+    }
+
+    private fun zipDirectory(dir: java.io.File, zipFile: java.io.File) {
+        java.util.zip.ZipOutputStream(
+            java.io.BufferedOutputStream(java.io.FileOutputStream(zipFile))
+        ).use { zos ->
+            val base = dir.toPath()
+            dir.walkTopDown().filter { it.isFile }.forEach { f ->
+                val name = base.relativize(f.toPath()).toString().replace('\\', '/')
+                zos.putNextEntry(java.util.zip.ZipEntry(name))
+                f.inputStream().use { input -> input.copyTo(zos) }
+                zos.closeEntry()
+            }
+        }
+    }
+
+    private fun sanitizeFileName(name: String): String {
+        return name.replace(Regex("[\\\\/:*?\"<>|\\s]+"), "_").take(64)
+    }
+
+    private fun shareMimeFor(name: String): String {
+        return when (name.substringAfterLast('.', "").lowercase(java.util.Locale.ROOT)) {
+            "mpkg", "pkg" -> "application/mpkg"
+            "mp4" -> "video/mp4"
+            "webm" -> "video/webm"
+            "gif" -> "image/gif"
+            "png" -> "image/png"
+            "jpg", "jpeg" -> "image/jpeg"
+            "webp" -> "image/webp"
+            "zip" -> "application/zip"
+            else -> "application/octet-stream"
+        }
+    }
+
+    /** 优先使用目标进程内的 FileProvider；authority 冲突或缺失时返回 null。 */
+    private fun fileProviderUri(activity: android.app.Activity, file: java.io.File): Uri? {
+        val authorities = linkedSetOf(activity.packageName, "io.wallpaperengine.weclient")
+        for (authority in authorities) {
+            try {
+                val cls = Class.forName(
+                    "androidx.core.content.FileProvider", false, activity.classLoader)
+                val method = cls.getMethod(
+                    "getUriForFile", Context::class.java, String::class.java, java.io.File::class.java)
+                val uri = method.invoke(null, activity, authority, file)
+                if (uri is Uri) return uri
+            } catch (_: Throwable) {
+            }
+        }
+        return null
+    }
+
+    /** 兜底分享：写入系统下载目录，返回 MediaStore 的 content:// URI（API 29+）。 */
+    private fun mediaStoreUri(
+        activity: android.app.Activity,
+        file: java.io.File,
+        mime: String
+    ): Uri? {
+        if (android.os.Build.VERSION.SDK_INT < 29) return null
+        return try {
+            val resolver = activity.contentResolver
+            val values = android.content.ContentValues().apply {
+                put(android.provider.MediaStore.Downloads.DISPLAY_NAME, file.name)
+                put(android.provider.MediaStore.Downloads.MIME_TYPE, mime)
+                put(android.provider.MediaStore.Downloads.IS_PENDING, 1)
+            }
+            val uri = resolver.insert(
+                android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return null
+            val output = resolver.openOutputStream(uri) ?: return null
+            output.use { out ->
+                file.inputStream().use { input -> input.copyTo(out) }
+            }
+            values.clear()
+            values.put(android.provider.MediaStore.Downloads.IS_PENDING, 0)
+            resolver.update(uri, values, null, null)
+            uri
+        } catch (t: Throwable) {
+            log(Log.WARN, TAG, "media store share failed", t)
+            null
+        }
+    }
+
+    /** 网页壁纸的详情页：补齐大小、类型、分辨率、FPS 等信息。 */
+    private fun hookWebWallpaperDetails(cl: ClassLoader) {
+        try {
+            val cls = cl.loadClass(
+                "io.wallpaperengine.weclient.FileDetailsActivity\$DetailsFragment")
+            val method = cls.getDeclaredMethod(
+                "onCreatePreferences", Bundle::class.java, String::class.java)
+            hook(method).intercept { chain ->
+                val result = chain.proceed()
+                try {
+                    applyWebWallpaperDetails(chain.thisObject)
+                } catch (t: Throwable) {
+                    log(Log.WARN, TAG, "apply web wallpaper details failed", t)
+                }
+                result
+            }
+            log(Log.INFO, TAG, "web wallpaper details hook installed")
+        } catch (t: Throwable) {
+            log(Log.WARN, TAG, "hook web wallpaper details failed", t)
+        }
+    }
+
+    private fun applyWebWallpaperDetails(fragment: Any?) {
+        if (fragment == null) return
+        val wall = try {
+            fragment.javaClass.getDeclaredField("selectedWallpaper")
+                .apply { isAccessible = true }.get(fragment)
+        } catch (_: Throwable) {
+            null
+        } ?: return
+        val path = try {
+            wall.javaClass.getMethod("getFilePath").invoke(wall) as? String
+        } catch (_: Throwable) {
+            null
+        } ?: return
+        val activity = try {
+            fragment.javaClass.getMethod("requireActivity").invoke(fragment)
+                as? android.app.Activity
+        } catch (_: Throwable) {
+            null
+        } ?: return
+        val dir = if (path.startsWith("/")) {
+            java.io.File(path)
+        } else {
+            java.io.File(activity.filesDir, path)
+        }
+        val project = java.io.File(dir, "project.json")
+        if (!dir.isDirectory || !project.isFile) return
+
+        val json = try {
+            org.json.JSONObject(project.readText())
+        } catch (_: Throwable) {
+            null
+        }
+        val screen = try {
+            fragment.javaClass.getMethod("getPreferenceScreen").invoke(fragment)
+        } catch (_: Throwable) {
+            null
+        } ?: return
+        val find = try {
+            screen.javaClass.getMethod("findPreference", CharSequence::class.java)
+        } catch (_: Throwable) {
+            return
+        }
+
+        fun setSummary(key: String, value: String) {
+            try {
+                val pref = find.invoke(screen, key) ?: return
+                pref.javaClass.getMethod("setSummary", CharSequence::class.java)
+                    .invoke(pref, value)
+            } catch (_: Throwable) {
+            }
+        }
+
+        val metrics = activity.resources.displayMetrics
+        val title = json?.optString("title", "").orEmpty().ifBlank { dir.name }
+        val type = json?.optString("type", "").orEmpty().ifBlank { "web" }
+        val entry = json?.optString("file", "").orEmpty().ifBlank { "index.html" }
+        val workshopId = json?.optString("workshopid", "").orEmpty()
+        setSummary("file_details_filetitle", title)
+        setSummary("file_details_filename", "${dir.name}/$entry")
+        setSummary("file_details_filesize", formatFileSize(directorySize(dir)))
+        setSummary("file_details_workshop_id",
+            workshopId.ifBlank { "本地导入" })
+        setSummary("file_details_type",
+            if (type.equals("web", true)) "网页（Web）" else type)
+        setSummary("file_details_resolution",
+            "自适应（${metrics.widthPixels} × ${metrics.heightPixels}）")
+        setSummary("file_details_fps",
+            "${WebWallpaper.fpsLimit(activity)} FPS（模块限制）")
+    }
+
+    private fun directorySize(dir: java.io.File): Long {
+        var total = 0L
+        return try {
+            dir.walkTopDown().forEach { if (it.isFile) total += it.length() }
+            total
+        } catch (_: Throwable) {
+            total
+        }
+    }
+
+    private fun formatFileSize(bytes: Long): String {
+        if (bytes < 1024) return "$bytes B"
+        val kb = bytes / 1024.0
+        if (kb < 1024) return String.format(java.util.Locale.US, "%.1f KB", kb)
+        val mb = kb / 1024.0
+        if (mb < 1024) return String.format(java.util.Locale.US, "%.1f MB", mb)
+        return String.format(java.util.Locale.US, "%.2f GB", mb / 1024.0)
+    }
+
+    /**
      * 跟踪 SupportVideoPlayer 实例（场景壁纸的视频元素）。
      * 该类由 native 层经 JNI 创建，Java 层无调用点，只能 hook 构造函数收集。
      * 原应用靠 setVolume(0,0) 全局静音掩盖了暂停未接线的问题；模块解除静音后，
@@ -1142,6 +1702,21 @@ class HookEntry : XposedModule() {
             val result = chain.proceed()
             chain.thisObject?.let { trackedVideoPlayers.add(it) }
             result
+        }
+    }
+
+    /**
+     * 网页壁纸接管渲染时，停止旧场景壁纸残留的声音（SoundBridge）与视频元素，
+     * 避免切换壁纸后场景背景音乐继续播放。
+     */
+    private fun stopSceneAudio() {
+        try {
+            SoundBridge.stopAll()
+        } catch (_: Throwable) {
+        }
+        try {
+            pauseTrackedVideos()
+        } catch (_: Throwable) {
         }
     }
 
@@ -1268,21 +1843,21 @@ class HookEntry : XposedModule() {
         }
     }
 
-    /** 每个版本只显示一次当前版本的更新日志。 */
+    /**
+     * 每个版本只显示一次当前版本的更新日志。
+     * 请求 logv<当前 versionCode>（例如 versionCode 为 8 时请求 /logv8）。
+     */
     private fun maybeShowChangelog(ctx: Context, prefs: SharedPreferences) {
         val current = currentModuleVersion()
         if (prefs.getInt(CHANGELOG_VERSION_KEY, 0) >= current) return
         Thread {
             try {
-                val isZhCN = ctx.resources.configuration.locales[0].let {
-                    it.language == "zh" && it.country == "CN"
-                }
-                val changelog = httpGet(API_BASE + if (isZhCN) "log" else "logen")
+                val changelog = httpGet(API_BASE + "logv" + current)?.trim()
                 if (changelog.isNullOrBlank()) return@Thread
                 Handler(Looper.getMainLooper()).post {
                     try {
                         AlertDialog.Builder(ctx)
-                            .setTitle("更新日志（v${currentModuleVersionName()}）")
+                            .setTitle("更新日志（v$MODULE_VERSION_NAME）")
                             .setMessage(changelog)
                             .setPositiveButton("确定", null)
                             .setCancelable(false)
@@ -1299,16 +1874,16 @@ class HookEntry : XposedModule() {
     }
 
     private fun showSourceDialog(ctx: Context, onDone: () -> Unit) {
-        val sources = arrayOf("迅雷网盘", "夸克网盘", "123云盘", "pan.nxdyy.cn", "GitHub", "QQ群")
+        val sources = arrayOf(
+            "pan.nxdyy.cn", "123云盘", "GitHub",
+            "夸克网盘", "迅雷网盘", "QQ群", "公众号", "其他"
+        )
         AlertDialog.Builder(ctx)
             .setTitle("你从哪里下载的模块")
             .setSingleChoiceItems(sources, -1) { dialog, which ->
                 dialog.dismiss()
-                when (which) {
-                    // 迅雷/夸克/QQ群 → 问是否付费
-                    0, 1, 5 -> showPaidResultDialog(ctx, onDone)
-                    else -> onDone()
-                }
+                // 前三项是作者自己的渠道，直接结束；其他渠道继续询问是否付费
+                if (which <= 2) onDone() else showPaidResultDialog(ctx, onDone)
             }
             .setCancelable(false)
             .show()
@@ -1320,49 +1895,56 @@ class HookEntry : XposedModule() {
             .setTitle("你付费了吗")
             .setSingleChoiceItems(items, -1) { dialog, which ->
                 dialog.dismiss()
-                when (which) {
-                    0 -> showScammedDialog(ctx, onDone)     // 付费了
-                    1 -> showMockDialog(ctx, onDone)        // 没有
+                if (which == 0) {
+                    showFreeSoftwareDialog(ctx, onDone)
+                } else {
+                    showWrongChannelDialog(ctx, onDone)
                 }
             }
             .setCancelable(false)
             .show()
     }
 
-    /** 付费了 → 提醒举报 */
-    private fun showScammedDialog(ctx: Context, onDone: () -> Unit) {
-        val isZhCN = ctx.resources.configuration.locales[0].let {
-            it.language == "zh" && it.country == "CN"
-        }
-        val msg = if (isZhCN) {
-            "这个老牧师的商家，太可恶了，火速举报！！😡😡😡😡\n\n（123云盘关掉付费弹窗可以不付费下载😍）"
-        } else {
-            "这个商家太可恶了，火速举报！！😡😡😡😡\n\n（123云盘关掉付费弹窗可以不付费下载😍）"
-        }
+    /** 非官方渠道且没有付费：提醒可能下载到了非正规渠道。 */
+    private fun showWrongChannelDialog(ctx: Context, onDone: () -> Unit) {
         AlertDialog.Builder(ctx)
-            .setTitle("😡😡😡")
-            .setMessage(msg)
-            .setPositiveButton("我马上去") { _, _ -> onDone() }
-            .setNeutralButton("打开真正作者主页") { _, _ ->
-                ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://space.bilibili.com/660595349")))
+            .setTitle("你很有可能不是从正确的渠道下载的本软件")
+            .setMessage(
+                "每一位创作者都值得被尊重，我并不希望我的软件被盗取，" +
+                    "并且被发布到别人的链接上，盗取资源的人还能因此获利。" +
+                    "麻烦点个举报感激不尽")
+            .setPositiveButton("打开真正作者主页") { _, _ ->
+                openAuthorPage(ctx)
                 onDone()
             }
             .setCancelable(false)
             .show()
     }
 
-    /** 没有 → 调侃 */
-    private fun showMockDialog(ctx: Context, onDone: () -> Unit) {
+    /** 非官方渠道且已付费：强调软件免费并提供作者主页。 */
+    private fun showFreeSoftwareDialog(ctx: Context, onDone: () -> Unit) {
         AlertDialog.Builder(ctx)
-            .setTitle("🤣🤣🤣")
-            .setMessage("你知道吗：你看到的那个视频的作者已经捞到了5块钱了🤣🤣🤣")
-            .setPositiveButton("我超级生气😡") { _, _ -> onDone() }
-            .setNeutralButton("打开真正作者主页") { _, _ ->
-                ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://space.bilibili.com/660595349")))
+            .setTitle("本软件为免费软件！！")
+            .setMessage(
+                "每一位创作者都值得被尊重，我并不希望我的软件被盗取，" +
+                    "并且被发布到别人的链接上，盗取资源的人还能因此获利。" +
+                    "麻烦点个举报感激不尽。\n\n" +
+                    "本软件在 GitHub、123 云盘以及私有下载站（pan.nxdyy.cn）免费开源。" +
+                    "如果你是付费下载的，一定要点举报！")
+            .setPositiveButton("打开真正作者主页") { _, _ ->
+                openAuthorPage(ctx)
                 onDone()
             }
             .setCancelable(false)
             .show()
+    }
+
+    private fun openAuthorPage(ctx: Context) {
+        try {
+            ctx.startActivity(Intent(Intent.ACTION_VIEW,
+                Uri.parse("https://space.bilibili.com/660595349")))
+        } catch (_: Throwable) {
+        }
     }
 
     /**
@@ -1388,7 +1970,8 @@ class HookEntry : XposedModule() {
 
     /**
      * 版本更新检查：每次打开壁纸引擎时异步请求服务器。
-     * 流程：version → log/logen → url → wever → must → 弹窗（一并展示模块与 WE 更新）。
+     * 只请求 version；发现新版本后再请求 updateinfo 获取版本名、日志、
+     * 下载地址、必要/预览标记与要求的 WE 版本。
      */
     private fun hookUpdateCheck(cl: ClassLoader) {
         val browseClass = cl.loadClass("io.wallpaperengine.weclient.BrowseActivity")
@@ -1403,45 +1986,28 @@ class HookEntry : XposedModule() {
                 Thread {
                     try {
                         val currentVersion = currentModuleVersion()
-
-                        // 1) 获取服务器模块版本，已安装 >= 服务器版本则不检查
-                        val serverVersion = httpGet(API_BASE + "version")?.toIntOrNull() ?: return@Thread
-                        if (serverVersion <= currentVersion) return@Thread
                         val ignoredVersion = prefs.getInt(UPDATE_IGNORED_KEY, 0)
+
+                        // 1) 仅请求 version
+                        val serverVersion = httpGet(API_BASE + "version")?.toIntOrNull()
+                            ?: return@Thread
+                        if (serverVersion <= currentVersion) return@Thread
                         if (serverVersion <= ignoredVersion) return@Thread
 
-                        // 2) 更新日志（按语言选择端点：简体中文用 /log，其他用 /logen）
-                        val isZhCN = activity.resources.configuration.locales[0].let {
-                            it.language == "zh" && it.country == "CN"
-                        }
-                        val changelog = httpGet(API_BASE + if (isZhCN) "log" else "logen") ?: ""
+                        // 2) 有新版本才请求 updateinfo
+                        val info = fetchUpdateInfo()
+                        val latest = info?.verCode?.takeIf { it > 0 } ?: serverVersion
+                        if (latest <= currentVersion || latest <= ignoredVersion) return@Thread
 
-                        // 3) 更新地址
-                        val updateUrl = httpGet(API_BASE + "url")
+                        val weOutdated = checkWeOutdated(activity, info?.weVer)
 
-                        // 4) Wallpaper Engine 版本检查
-                        var weOutdated = false
-                        try {
-                            val serverWeVer = httpGet(API_BASE + "wever")?.toIntOrNull()
-                            if (serverWeVer != null) {
-                                val pkgInfo = activity.packageManager.getPackageInfo(
-                                    activity.packageName, 0)
-                                val installedWeVer = pkgInfo.longVersionCode.toInt()
-                                weOutdated = installedWeVer < serverWeVer
-                            }
-                        } catch (_: Throwable) {}
-
-                        // 5) 必要/非必要更新标记（0 = 非必要，1 = 必要/默认）
-                        val mustStr = httpGet(API_BASE + "must")
-                        val nonEssential = mustStr == "0"
-
-                        // 6) 弹窗（集成模式下可能存在独立+内嵌两个模块实例重复 hook，按时间戳去重）
+                        // 3) 弹窗（集成模式下可能重复 hook，按时间戳去重）
                         if (!markUpdateDialogShown(prefs)) return@Thread
                         Handler(Looper.getMainLooper()).post {
                             try {
                                 showUpdateDialog(
-                                    activity, serverVersion, changelog, updateUrl,
-                                    weOutdated, nonEssential, prefs, UPDATE_IGNORED_KEY)
+                                    activity, latest, info, weOutdated,
+                                    prefs, UPDATE_IGNORED_KEY)
                             } catch (t: Throwable) {
                                 log(Log.WARN, TAG, "show update dialog failed", t)
                             }
@@ -1454,6 +2020,49 @@ class HookEntry : XposedModule() {
                 log(Log.WARN, TAG, "update check hook failed", t)
             }
             result
+        }
+    }
+
+    /** 服务器返回的更新详情（/updateinfo）。 */
+    private data class UpdateInfo(
+        val verName: String,
+        val verCode: Int,
+        val log: String,
+        val weVer: String,
+        val must: Boolean,
+        val pre: Boolean,
+        val url: String
+    )
+
+    /** 有新版本时才调用的详情请求，失败返回 null。 */
+    private fun fetchUpdateInfo(): UpdateInfo? {
+        val raw = httpGet(API_BASE + "updateinfo") ?: return null
+        return try {
+            val json = org.json.JSONObject(raw)
+            UpdateInfo(
+                verName = json.optString("vername", ""),
+                verCode = json.optInt("vercode", 0),
+                log = json.optString("log", ""),
+                weVer = json.optString("wever", ""),
+                must = json.optBoolean("must", false),
+                pre = json.optBoolean("pre", false),
+                url = json.optString("url", "")
+            )
+        } catch (t: Throwable) {
+            log(Log.WARN, TAG, "parse update info failed", t)
+            null
+        }
+    }
+
+    /** 服务器要求的 WE 版本是否高于本机安装版本。 */
+    private fun checkWeOutdated(ctx: Context, serverWeVer: String?): Boolean {
+        val target = serverWeVer?.toIntOrNull() ?: return false
+        return try {
+            val installed = ctx.packageManager
+                .getPackageInfo(ctx.packageName, 0).longVersionCode.toInt()
+            installed < target
+        } catch (_: Throwable) {
+            false
         }
     }
 
@@ -1494,14 +2103,28 @@ class HookEntry : XposedModule() {
     }
 
     private fun showUpdateDialog(
-        ctx: Context, serverVersion: Int, changelog: String, updateUrl: String?,
-        weOutdated: Boolean, nonEssential: Boolean,
-        prefs: SharedPreferences, ignoredKey: String
+        ctx: Context,
+        serverVersion: Int,
+        info: UpdateInfo?,
+        weOutdated: Boolean,
+        prefs: SharedPreferences,
+        ignoredKey: String
     ) {
         val i18n = getUpdateI18N(ctx)
-        val versionStr = if (serverVersion > 100) "${serverVersion / 100}.${serverVersion % 100}" else "v$serverVersion"
+        val zh = ctx.resources.configuration.locales[0].language == "zh"
+        val versionStr = info?.verName?.takeIf { it.isNotBlank() }
+            ?: if (serverVersion > 100) {
+                "${serverVersion / 100}.${serverVersion % 100}"
+            } else {
+                "v$serverVersion"
+            }
+        val changelog = info?.log.orEmpty()
+        val must = info?.must == true
+        val pre = info?.pre == true
+        val updateUrl = info?.url?.takeIf { it.isNotBlank() }
         val msg = buildString {
             append(i18n["version"]!!.format(versionStr))
+            if (pre) append(if (zh) "\n预览版本（测试版）" else "\nPre-release build")
             if (changelog.isNotBlank()) {
                 append("\n\n")
                 append(i18n["changelog_header"])
@@ -1512,24 +2135,24 @@ class HookEntry : XposedModule() {
                 append("\n\n")
                 append(i18n["we_outdated"])
             }
-            if (nonEssential) {
-                append("\n\n")
-                append(i18n["non_essential"])
-            }
+            if (must) append(if (zh) "\n\n此版本为必要更新" else "\n\nThis update is mandatory")
         }
-        AlertDialog.Builder(ctx)
+        val builder = AlertDialog.Builder(ctx)
             .setTitle(i18n["title"])
             .setMessage(msg)
             .setPositiveButton(i18n["update"]) { _, _ ->
-                val url = updateUrl ?: "https://github.com/nxdyy/WallpaperEngineSoundFix/releases"
+                val url = updateUrl ?: "https://github.com/nxdyy/WallpaperEnginePlus/releases"
                 ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
             }
             .setNegativeButton(i18n["close"]) { _, _ -> }
-            .setNeutralButton(i18n["ignore"]) { _, _ ->
+            .setCancelable(false)
+        // 必要更新不提供“忽略此版本”
+        if (!must) {
+            builder.setNeutralButton(i18n["ignore"]) { _, _ ->
                 prefs.edit().putInt(ignoredKey, serverVersion).apply()
             }
-            .setCancelable(false)
-            .show()
+        }
+        builder.show()
     }
 
     /** Hook MediaPlayer.setVolume：静音调用 (0,0) → 用户音量；并跟踪实例。 */
@@ -1743,7 +2366,7 @@ class HookEntry : XposedModule() {
         category.javaClass.getMethod("addPreference", prefBaseClass).invoke(category, pref)
     }
 
-    /** 检查模块更新（手动触发）。 */
+    /** 检查模块更新（手动触发）：version → 有新版本时再取 updateinfo。 */
     private fun checkModuleUpdate(ctx: Context) {
         Thread {
             try {
@@ -1758,24 +2381,19 @@ class HookEntry : XposedModule() {
                     return@Thread
                 }
 
-                val isZhCN = ctx.resources.configuration.locales[0].let {
-                    it.language == "zh" && it.country == "CN"
-                }
-                val changelog = httpGet(API_BASE + if (isZhCN) "log" else "logen") ?: ""
-                val updateUrl = httpGet(API_BASE + "url")
-                val nonEssential = httpGet(API_BASE + "must") == "0"
+                val info = fetchUpdateInfo()
+                val latest = info?.verCode?.takeIf { it > 0 } ?: server
+                val weOutdated = checkWeOutdated(ctx, info?.weVer)
                 val prefs = obtainPrefs()
 
                 Handler(Looper.getMainLooper()).post {
                     try {
                         if (prefs != null) {
                             showUpdateDialog(
-                                ctx, server, changelog, updateUrl,
-                                weOutdated = false, nonEssential = nonEssential,
-                                prefs = prefs, ignoredKey = UPDATE_IGNORED_KEY)
+                                ctx, latest, info, weOutdated, prefs, UPDATE_IGNORED_KEY)
                         } else {
                             showSimpleDialog(ctx, "发现模块新版本",
-                                "当前版本：$current\n最新版本：$server")
+                                "当前版本：$current\n最新版本：$latest")
                         }
                     } catch (t: Throwable) {
                         log(Log.WARN, TAG, "show module update dialog failed", t)
@@ -1788,17 +2406,19 @@ class HookEntry : XposedModule() {
         }.start()
     }
 
-    /** 检查 Wallpaper Engine 更新（手动触发）。 */
+    /** 检查 Wallpaper Engine 更新（手动触发）：读取 updateinfo 中要求的 wever。 */
     private fun checkWallpaperEngineUpdate(ctx: Context) {
         Thread {
             try {
-                val server = httpGet(API_BASE + "wever")?.toIntOrNull()
+                val info = fetchUpdateInfo()
+                val server = info?.weVer?.toIntOrNull()
                 if (server == null) {
                     postDialog(ctx, "检查壁纸引擎更新", "检查失败，请稍后重试")
                     return@Thread
                 }
                 val installed = try {
-                    ctx.packageManager.getPackageInfo(ctx.packageName, 0).longVersionCode.toInt()
+                    ctx.packageManager.getPackageInfo(ctx.packageName, 0)
+                        .longVersionCode.toInt()
                 } catch (_: Throwable) {
                     -1
                 }
@@ -1840,15 +2460,6 @@ class HookEntry : XposedModule() {
         longCode?.toInt() ?: info.javaClass.getField("versionCode").getInt(info)
     } catch (_: Throwable) {
         MODULE_VERSION_CODE
-    }
-
-    /** 模块自身 versionName（取不到时回退到构建配置）。 */
-    private fun currentModuleVersionName(): String = try {
-        val info = moduleApplicationInfo
-        (info.javaClass.getField("versionName").get(info) as? String)
-            ?.takeIf { it.isNotBlank() } ?: MODULE_VERSION_NAME
-    } catch (_: Throwable) {
-        MODULE_VERSION_NAME
     }
 
     /** 用户音量 (0.0 ~ 1.0)。 */
@@ -1905,10 +2516,10 @@ class HookEntry : XposedModule() {
         private const val UPDATE_DIALOG_DEDUP_MS = 30_000L
         /** 已展示更新日志的版本号，保证每个版本只弹一次 */
         private const val CHANGELOG_VERSION_KEY = "we_soundfix_changelog_version"
-        private const val API_BASE = "https://project.nxdyy.cn/WallpaperEngineSoundFix/"
+        private const val API_BASE = "https://project.nxdyy.cn/WallpaperEnginePlus/"
         /** 与 build.gradle.kts 的 versionCode 保持一致，作为取不到模块信息时的回退值 */
-        private const val MODULE_VERSION_CODE = 7
-        private const val MODULE_VERSION_NAME = "1.5"
+        private const val MODULE_VERSION_CODE = 8
+        private const val MODULE_VERSION_NAME = "2.0-rc1"
 
         /** 注入壁纸引擎设置的音量滑条标题和摘要，按设备语言匹配。 */
         private val PREF_I18N = mapOf(

@@ -73,7 +73,7 @@ class MainActivity : AppCompatActivity() {
 
         // GitHub link
         val githubTv = TextView(this).apply {
-            text = "https://github.com/nxdyy/WallpaperEngineSoundFix"
+            text = "https://github.com/nxdyy/WallpaperEnginePlus"
             textSize = 13f
             setTextColor(linkColor)
             setPadding(0, 0, 0, (20 * resources.displayMetrics.density).toInt())
@@ -201,13 +201,18 @@ class MainActivity : AppCompatActivity() {
             "2.  ${getString(R.string.instr_step2)}",
             "3.  ${getString(R.string.instr_step3)}",
             "4.  ${getString(R.string.instr_step4)}",
+            "5.  ${getString(R.string.instr_step5)}",
             "",
             getString(R.string.instr_scope_header),
+            getString(R.string.instr_scope_web_import),
+            getString(R.string.instr_scope_web_size),
+            getString(R.string.instr_scope_web_props),
             getString(R.string.instr_scope_video),
             getString(R.string.instr_scope_scene_video),
             getString(R.string.instr_scope_scene_sound),
             "",
             getString(R.string.instr_principle_header),
+            getString(R.string.instr_principle_web),
             getString(R.string.instr_principle_video),
             getString(R.string.instr_principle_scene),
         )

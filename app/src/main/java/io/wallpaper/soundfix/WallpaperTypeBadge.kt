@@ -106,6 +106,8 @@ internal object WallpaperTypeBadge {
         }
         val path = callString(item, "getFilePath").orEmpty()
         val progress = callInt(item, "getProgress")
+        // 网页壁纸的预览 GIF：替换第一帧静态图，让列表缩略图动起来
+        GifPreview.prepareCover(itemView, path)
         val badge = ensureBadge(itemView) ?: return
         if (path.isBlank() || progress < PROGRESS_DONE) {
             badgePaths.remove(badge)

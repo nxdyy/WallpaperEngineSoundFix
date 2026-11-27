@@ -354,6 +354,8 @@ class HookEntry : XposedModule() {
                             // 网页壁纸不会触发该回调，这里直接切换界面状态。
                             container.visibility = android.view.View.VISIBLE
                             WebWallpaper.addPreview(activity, container, dir)
+                            // 把 project.json 的自定义选项填进预览页的属性抽屉
+                            WebWallpaper.addPreviewProperties(activity, dir)
                             try {
                                 activity.javaClass.getDeclaredField("hasLoadedWallpaper")
                                     .apply { isAccessible = true }
@@ -623,6 +625,10 @@ class HookEntry : XposedModule() {
             min = 50, max = 100, step = 25, defValue = 100,
             cl = cl)
 
+        // 常规分组最后：清除旧版本随机域名累积的浏览器数据
+        addWebClearPreference(
+            target, ctx, cl, prefClass, findPreference, addPreference, fragment)
+
         // Preference 按 order 排序（Collections.sort），
         // 把“FPS 限制”之后的条目整体后移，给两个新条目腾出 order 1、2。
         try {
@@ -719,6 +725,88 @@ class HookEntry : XposedModule() {
         addPreference.invoke(screen, pref)
         log(Log.INFO, TAG, "web wallpaper preference added: $key")
         return pref
+    }
+
+    /** 在常规分组末尾添加“清除网页壁纸数据”条目。 */
+    private fun addWebClearPreference(
+        target: Any,
+        ctx: Context,
+        cl: ClassLoader,
+        prefClass: Class<*>,
+        findPreference: java.lang.reflect.Method,
+        addPreference: java.lang.reflect.Method,
+        fragment: Any
+    ): Any? {
+        val key = "web_wallpaper_clear_data"
+        if (findPreference.invoke(target, key) != null) return null
+        val pref = prefClass.getConstructor(Context::class.java).newInstance(ctx)
+        prefClass.getMethod("setKey", String::class.java).invoke(pref, key)
+        prefClass.getMethod("setTitle", CharSequence::class.java)
+            .invoke(pref, "清除网页壁纸数据")
+        prefClass.getMethod("setSummary", CharSequence::class.java)
+            .invoke(pref, "删除网页壁纸保存的设置、Cookie 和浏览器缓存")
+        try {
+            prefClass.getMethod("setIconSpaceReserved", Boolean::class.javaPrimitiveType)
+                .invoke(pref, false)
+        } catch (_: Throwable) {
+        }
+        try {
+            val clickClass = cl.loadClass(
+                "androidx.preference.Preference\$OnPreferenceClickListener")
+            val listener = java.lang.reflect.Proxy.newProxyInstance(
+                cl, arrayOf(clickClass)
+            ) { _, method, _ ->
+                when (method.name) {
+                    "onPreferenceClick" -> {
+                        showClearWebDataDialog(fragment)
+                        true
+                    }
+                    "hashCode" -> System.identityHashCode(method)
+                    "equals" -> false
+                    "toString" -> "WebWallpaperClearListener"
+                    else -> null
+                }
+            }
+            prefClass.getMethod("setOnPreferenceClickListener", clickClass)
+                .invoke(pref, listener)
+        } catch (t: Throwable) {
+            log(Log.WARN, TAG, "set clear data click listener failed", t)
+        }
+        addPreference.invoke(target, pref)
+        try {
+            // 大 order 保证排在常规分组最后（后续腾位逻辑会再加 2）
+            prefClass.getMethod("setOrder", Int::class.javaPrimitiveType).invoke(pref, 9999)
+        } catch (_: Throwable) {
+        }
+        log(Log.INFO, TAG, "web wallpaper preference added: $key")
+        return pref
+    }
+
+    private fun showClearWebDataDialog(fragment: Any) {
+        val activity = try {
+            fragment.javaClass.getMethod("requireActivity").invoke(fragment)
+                as? android.app.Activity
+        } catch (_: Throwable) {
+            null
+        } ?: return
+        try {
+            AlertDialog.Builder(activity)
+                .setTitle("清除网页壁纸数据")
+                .setMessage("将删除所有网页壁纸保存的设置（localStorage）、Cookie 和浏览器缓存，" +
+                    "清除后壁纸会重新加载。")
+                .setPositiveButton("清除") { _, _ ->
+                    try {
+                        WebWallpaper.clearWebData(activity)
+                        Toast.makeText(activity, "已清除网页壁纸数据", Toast.LENGTH_SHORT).show()
+                    } catch (t: Throwable) {
+                        log(Log.WARN, TAG, "clear web wallpaper data failed", t)
+                    }
+                }
+                .setNegativeButton("取消", null)
+                .show()
+        } catch (t: Throwable) {
+            log(Log.WARN, TAG, "show clear data dialog failed", t)
+        }
     }
 
     private fun readDefaultPreferenceInt(ctx: Context, key: String, def: Int): Int {

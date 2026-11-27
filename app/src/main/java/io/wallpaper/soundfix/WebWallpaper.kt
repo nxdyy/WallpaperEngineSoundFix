@@ -71,6 +71,15 @@ internal object WebWallpaper {
         })()
     """.trimIndent()
 
+    /** 通知网页壁纸自身进入暂停状态（wallpaperPropertyListener.setPaused）。 */
+    private const val PROPERTY_PAUSED_JS =
+        "(function(){try{var l=window.wallpaperPropertyListener;" +
+            "if(l&&l.setPaused)l.setPaused(true)}catch(e){}})()"
+
+    private const val PROPERTY_RESUMED_JS =
+        "(function(){try{var l=window.wallpaperPropertyListener;" +
+            "if(l&&l.setPaused)l.setPaused(false)}catch(e){}})()"
+
     /**
      * 在页面脚本执行前注入媒体守卫：
      * - 记录所有 AudioContext（页面后续创建的也能暂停）
@@ -93,10 +102,13 @@ internal object WebWallpaper {
             window.AudioContext = W;
             window.webkitAudioContext = W;
           }
-          window.__wePaused = false;
+          window.__wePaused = __WE_PAUSED__;
+          var savedMedia = [];
+          var blockedMedia = [];
           var origPlay = HTMLMediaElement.prototype.play;
           HTMLMediaElement.prototype.play = function () {
             if (window.__wePaused) {
+              try { if (blockedMedia.indexOf(this) < 0) blockedMedia.push(this); } catch (e) {}
               try { this.pause() } catch (e) {}
               return Promise.resolve();
             }
@@ -108,11 +120,31 @@ internal object WebWallpaper {
           window.__wePauseMedia = function () {
             window.__wePaused = true;
             var m = document.querySelectorAll('audio,video');
-            for (var i = 0; i < m.length; i++) { try { m[i].pause() } catch (e) {} }
+            for (var i = 0; i < m.length; i++) {
+              try {
+                // 记录暂停前正在播放的媒体，恢复时需要主动重新播放
+                if (!m[i].paused && !m[i].ended) savedMedia.push(m[i]);
+                m[i].pause();
+              } catch (e) {}
+            }
             for (var j = 0; j < cs.length; j++) { try { cs[j].suspend() } catch (e) {} }
           };
           window.__weResumeMedia = function () {
             window.__wePaused = false;
+            var list = savedMedia.concat(blockedMedia);
+            savedMedia = [];
+            blockedMedia = [];
+            var seen = [];
+            for (var i = 0; i < list.length; i++) {
+              try {
+                if (seen.indexOf(list[i]) >= 0) continue;
+                seen.push(list[i]);
+                if (list[i].paused) {
+                  var pr = origPlay.call(list[i]);
+                  if (pr && pr.catch) pr.catch(function () {});
+                }
+              } catch (e) {}
+            }
             for (var j = 0; j < cs.length; j++) { try { cs[j].resume() } catch (e) {} }
           };
           function eachFrame(fn) {
@@ -351,9 +383,13 @@ internal object WebWallpaper {
     fun addPreview(activity: Activity, container: android.view.ViewGroup, dir: File) {
         try {
             stopPreview()
-            val host = "we-${randomToken()}.local"
-            val wv = createWebView(activity, dir, host)
+            ensurePropertyListener(activity)
+            val host = hostFor(dir)
+            // 渲染进程被回收时重建预览，避免应用被系统终止
+            val wv = createWebView(activity, dir, host,
+                onRendererGone = { addPreview(activity, container, dir) })
             previewWebView = wv
+            previewDir = dir
             container.removeAllViews()
             container.addView(wv, android.view.ViewGroup.LayoutParams(
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT,
@@ -369,14 +405,13 @@ internal object WebWallpaper {
     fun stopPreview() {
         val wv = previewWebView ?: return
         previewWebView = null
-        try {
-            wv.evaluateJavascript(PAUSE_MEDIA_JS, null)
-            wv.onPause()
-            wv.loadUrl("about:blank")
-            wv.stopLoading()
-            wv.destroy()
-        } catch (_: Throwable) {
-        }
+        previewDir = null
+        // 渲染进程可能已经死亡，逐步 try 确保 destroy 一定执行
+        try { wv.evaluateJavascript(PAUSE_MEDIA_JS, null) } catch (_: Throwable) {}
+        try { wv.onPause() } catch (_: Throwable) {}
+        try { wv.loadUrl("about:blank") } catch (_: Throwable) {}
+        try { wv.stopLoading() } catch (_: Throwable) {}
+        try { wv.destroy() } catch (_: Throwable) {}
     }
 
     /** 预览页不可见时暂停 WebView 并停止页面里的音频。 */
@@ -386,6 +421,7 @@ internal object WebWallpaper {
             wv.evaluateJavascript(PAUSE_MEDIA_JS) { r ->
                 Log.i(TAG, "preview media pause result: $r")
             }
+            wv.evaluateJavascript(PROPERTY_PAUSED_JS, null)
             wv.onPause()
         } catch (_: Throwable) {
         }
@@ -394,12 +430,14 @@ internal object WebWallpaper {
     fun resumePreview() {
         try {
             previewWebView?.evaluateJavascript(RESUME_MEDIA_JS, null)
+            previewWebView?.evaluateJavascript(PROPERTY_RESUMED_JS, null)
             previewWebView?.onResume()
         } catch (_: Throwable) {
         }
     }
 
     private var previewWebView: WebView? = null
+    private var previewDir: File? = null
 
     /**
      * 等 WebView 完成布局再加载：不少壁纸脚本在加载时读取 innerWidth/innerHeight
@@ -422,6 +460,262 @@ internal object WebWallpaper {
     }
 
     data class Entry(val name: String, val title: String, val lastModified: Long)
+
+    // ------------------------------------------------------------ 自定义选项 UI
+
+    /** 把自定义选项填充到预览页自带的属性抽屉（propertiesContainer）。 */
+    fun addPreviewProperties(activity: Activity, dir: File) {
+        try {
+            val defs = projectProperties(dir) ?: return
+            if (defs.length() == 0) return
+            val id = activity.resources.getIdentifier(
+                "propertiesContainer", "id", activity.packageName)
+            if (id == 0) return
+            val container = activity.findViewById<ViewGroup>(id) ?: return
+            // 原版属性 Fragment 对网页壁纸是空的，替换成网页的自定义选项
+            container.removeAllViews()
+            val view = buildPropertiesView(activity, dir) ?: return
+            container.addView(view, ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT))
+            Log.i(TAG, "web wallpaper properties embedded: ${dir.name}")
+        } catch (t: Throwable) {
+            Log.w(TAG, "embed web properties failed", t)
+        }
+    }
+
+    /** 构建属性设置视图（嵌入预览页属性抽屉）。 */
+    private fun buildPropertiesView(ctx: Context, dir: File): View? {
+        val defs = projectProperties(dir) ?: return null
+        if (defs.length() == 0) return null
+        val filePath = filePathFor(ctx, dir)
+        val saved = savedProperties(ctx, filePath)
+
+        val items = ArrayList<Pair<String, JSONObject>>()
+        val keys = defs.keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            val item = defs.optJSONObject(key) ?: continue
+            items.add(key to item)
+        }
+        items.sortBy { it.second.optInt("order", Int.MAX_VALUE) }
+
+        val scroll = android.widget.ScrollView(ctx)
+        scroll.isFillViewport = true
+        val box = android.widget.LinearLayout(ctx)
+        box.orientation = android.widget.LinearLayout.VERTICAL
+        box.setPadding(dp(ctx, 16), dp(ctx, 8), dp(ctx, 16), dp(ctx, 24))
+        scroll.addView(box)
+        for ((key, def) in items) {
+            addPropertyRow(ctx, box, dir, key, def, saved)
+        }
+        return scroll
+    }
+
+    private fun addPropertyRow(
+        ctx: Context,
+        box: android.widget.LinearLayout,
+        dir: File,
+        key: String,
+        def: JSONObject,
+        saved: JSONObject?
+    ) {
+        val type = def.optString("type", "")
+        val title = localizedPropertyText(dir, def.optString("text", key))
+        val current: Any? = saved?.optJSONObject(key)?.opt("value") ?: def.opt("value")
+        when (type) {
+            "bool" -> {
+                val cb = android.widget.CheckBox(ctx)
+                cb.text = htmlText(title)
+                cb.isChecked = current as? Boolean ?: false
+                cb.setOnCheckedChangeListener { _, v -> savePropertyValue(ctx, dir, key, v) }
+                box.addView(cb)
+            }
+            "slider" -> {
+                val label = android.widget.TextView(ctx)
+                val min = def.optDouble("min", 0.0)
+                val max = def.optDouble("max", 100.0)
+                val step = def.optDouble("step", 1.0).coerceAtLeast(0.0001)
+                val fraction = def.optBoolean("fraction", false)
+                val cur = (current as? Number)?.toDouble() ?: min
+                label.text = htmlLabel(title, formatPropertyNumber(cur, fraction))
+                val sb = android.widget.SeekBar(ctx)
+                sb.max = (((max - min) / step).toInt()).coerceAtLeast(1)
+                sb.progress = (((cur - min) / step).toInt()).coerceIn(0, sb.max)
+                sb.setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+                    override fun onProgressChanged(
+                        seekBar: android.widget.SeekBar?, progress: Int, fromUser: Boolean
+                    ) {
+                        val v = min + progress * step
+                        val value: Number = if (fraction) {
+                            String.format(Locale.US, "%.2f", v).toDouble()
+                        } else {
+                            Math.round(v)
+                        }
+                        label.text =
+                            htmlLabel(title, formatPropertyNumber(value.toDouble(), fraction))
+                        if (fromUser) savePropertyValue(ctx, dir, key, value)
+                    }
+
+                    override fun onStartTrackingTouch(seekBar: android.widget.SeekBar?) {}
+                    override fun onStopTrackingTouch(seekBar: android.widget.SeekBar?) {}
+                })
+                box.addView(label)
+                box.addView(sb)
+            }
+            "combo" -> {
+                val label = android.widget.TextView(ctx)
+                label.text = htmlText(title)
+                val spinner = android.widget.Spinner(ctx)
+                val options = def.optJSONArray("options") ?: org.json.JSONArray()
+                val labels = ArrayList<CharSequence>()
+                val values = ArrayList<String>()
+                for (i in 0 until options.length()) {
+                    val opt = options.optJSONObject(i) ?: continue
+                    labels.add(htmlText(localizedPropertyText(dir, opt.optString("label", ""))))
+                    values.add(opt.optString("value", ""))
+                }
+                val adapter = android.widget.ArrayAdapter(
+                    ctx, android.R.layout.simple_spinner_dropdown_item, labels)
+                spinner.adapter = adapter
+                val cur = current?.toString() ?: ""
+                spinner.setSelection(values.indexOf(cur).coerceAtLeast(0), false)
+                spinner.onItemSelectedListener = object :
+                    android.widget.AdapterView.OnItemSelectedListener {
+                    override fun onItemSelected(
+                        parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long
+                    ) {
+                        values.getOrNull(position)?.let { savePropertyValue(ctx, dir, key, it) }
+                    }
+
+                    override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+                }
+                box.addView(label)
+                box.addView(spinner)
+            }
+            "textinput" -> {
+                val label = android.widget.TextView(ctx)
+                label.text = htmlText(title)
+                val et = android.widget.EditText(ctx)
+                et.setText(current?.toString() ?: "")
+                et.addTextChangedListener(object : android.text.TextWatcher {
+                    override fun beforeTextChanged(
+                        s: CharSequence?, start: Int, count: Int, after: Int
+                    ) {}
+                    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                    override fun afterTextChanged(s: android.text.Editable?) {
+                        savePropertyValue(ctx, dir, key, s?.toString() ?: "")
+                    }
+                })
+                box.addView(label)
+                box.addView(et)
+            }
+            "text" -> {
+                val tv = android.widget.TextView(ctx)
+                tv.text = htmlText(localizedPropertyText(dir, def.optString("text", "")))
+                box.addView(tv)
+            }
+            "color" -> {
+                val tv = android.widget.TextView(ctx)
+                tv.text = htmlLabel(title, current?.toString() ?: "")
+                tv.alpha = 0.8f
+                box.addView(tv)
+            }
+            "file" -> {
+                val tv = android.widget.TextView(ctx)
+                val value = current?.toString() ?: ""
+                tv.text = htmlLabel(title, if (value.isBlank()) "未选择" else value)
+                tv.alpha = 0.6f
+                box.addView(tv)
+            }
+            else -> {
+                val tv = android.widget.TextView(ctx)
+                tv.text = htmlText(title)
+                box.addView(tv)
+            }
+        }
+    }
+
+    /** project.json 的属性 text/label 允许写 HTML，统一按 HTML 解析。 */
+    private fun htmlText(text: String): CharSequence {
+        return try {
+            android.text.Html.fromHtml(text, android.text.Html.FROM_HTML_MODE_LEGACY)
+        } catch (_: Throwable) {
+            text
+        }
+    }
+
+    /** 标题（可含 HTML）+ “：值”的拼接，保留标题格式。 */
+    private fun htmlLabel(title: String, value: String): CharSequence {
+        return try {
+            android.text.TextUtils.concat(htmlText(title), "：", value)
+        } catch (_: Throwable) {
+            "$title：$value"
+        }
+    }
+
+    /** 读取属性标题的多语言文本（project.json 的 general.localization）。 */
+    private fun localizedPropertyText(dir: File, text: String): String {
+        if (text.isBlank()) return ""
+        return try {
+            val loc = JSONObject(File(dir, "project.json").readText())
+                .optJSONObject("general")?.optJSONObject("localization") ?: return text
+            for (lang in propertyLanguageCandidates()) {
+                val v = loc.optJSONObject(lang)?.optString(text, "") ?: ""
+                if (v.isNotBlank()) return v
+            }
+            text
+        } catch (_: Throwable) {
+            text
+        }
+    }
+
+    private fun propertyLanguageCandidates(): List<String> {
+        val locale = Locale.getDefault()
+        val tag = locale.toString()
+        val traditional = tag.contains("Hant") || tag.contains("TW") ||
+            tag.contains("HK") || tag.contains("MO")
+        return when {
+            locale.language == "zh" && traditional ->
+                listOf("zh-cht", "zh-chs", "en-us")
+            locale.language == "zh" ->
+                listOf("zh-chs", "zh-cht", "en-us")
+            else ->
+                listOf("en-us")
+        }
+    }
+
+    private fun formatPropertyNumber(v: Double, fraction: Boolean): String {
+        return if (fraction || v % 1.0 != 0.0) {
+            String.format(Locale.US, "%.2f", v)
+        } else {
+            v.toInt().toString()
+        }
+    }
+
+    /** 保存单个属性值到壁纸引擎偏好，并立即推送给网页。 */
+    private fun savePropertyValue(ctx: Context, dir: File, key: String, value: Any?) {
+        val filePath = filePathFor(ctx, dir)
+        try {
+            val prefs = defaultPrefs(ctx) ?: return
+            val raw = prefs.getString("wp_properties_$filePath", null)
+            val root = try {
+                raw?.let { JSONObject(it) } ?: JSONObject()
+            } catch (_: Throwable) {
+                JSONObject()
+            }
+            val entry = root.optJSONObject(key) ?: JSONObject()
+            entry.put("value", value ?: JSONObject.NULL)
+            root.put(key, entry)
+            prefs.edit().putString("wp_properties_$filePath", root.toString()).apply()
+        } catch (_: Throwable) {
+        }
+        pushPropertiesToDir(ctx, dir)
+    }
+
+    private fun dp(ctx: Context, value: Int): Int {
+        return (value * ctx.resources.displayMetrics.density).toInt()
+    }
 
     /** 在壁纸 Surface 上启动网页渲染（同一 Engine 的旧渲染器会被替换）。 */
     fun start(
@@ -500,6 +794,51 @@ internal object WebWallpaper {
 
     fun isRunning(): Boolean = renderers.isNotEmpty()
 
+    /**
+     * 清除网页壁纸在 WebView 中留下的数据。
+     *
+     * 旧版本每次加载都使用随机虚拟域名，浏览器按 origin 保存的 localStorage、
+     * IndexedDB 与 HTTP 缓存会随每次重载不断累积，而且永远不会再被访问。
+     */
+    fun clearWebData(ctx: Context) {
+        try {
+            // localStorage / sessionStorage
+            android.webkit.WebStorage.getInstance().deleteAllData()
+        } catch (_: Throwable) {
+        }
+        try {
+            val cookies = android.webkit.CookieManager.getInstance()
+            cookies.removeAllCookies(null)
+            cookies.flush()
+        } catch (_: Throwable) {
+        }
+        try {
+            val db = android.webkit.WebViewDatabase.getInstance(ctx)
+            db.clearFormData()
+            db.clearHttpAuthUsernamePassword()
+            @Suppress("DEPRECATION")
+            db.clearUsernamePassword()
+        } catch (_: Throwable) {
+        }
+        try {
+            // 清除 HTTP 缓存（含磁盘缓存），必须在主线程调用
+            WebView(ctx).clearCache(true)
+        } catch (_: Throwable) {
+        }
+        // IndexedDB / Service Worker 缓存没有公开清理接口，删除磁盘目录（Chromium 会重建）
+        Thread {
+            try {
+                val root = File(ctx.filesDir.parentFile, "app_webview/Default")
+                File(root, "IndexedDB").deleteRecursively()
+                File(root, "Local Storage").deleteRecursively()
+                File(root, "Service Worker/CacheStorage").deleteRecursively()
+            } catch (_: Throwable) {
+            }
+        }.start()
+        // 重新加载当前壁纸，让页面读到清空后的数据
+        scheduleApplySettings()
+    }
+
     private val settingsHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private var pendingApply: Runnable? = null
 
@@ -576,26 +915,114 @@ internal object WebWallpaper {
         }
     }
 
-    private fun defaultPropertiesJs(dir: File): String? {
+    /** 读取 project.json 中定义的用户属性（键 → 属性定义）。 */
+    private fun projectProperties(dir: File): JSONObject? {
         return try {
-            val json = JSONObject(File(dir, "project.json").readText())
-            val props = json.optJSONObject("general")?.optJSONObject("properties")
-                ?: return null
-            val out = JSONObject()
-            val keys = props.keys()
-            while (keys.hasNext()) {
-                val key = keys.next()
-                val item = props.optJSONObject(key) ?: continue
-                val obj = JSONObject()
-                obj.put("value", item.opt("value"))
-                out.put(key, obj)
-            }
-            if (out.length() == 0) null else
-                "if(window.wallpaperPropertyListener&&window.wallpaperPropertyListener.applyUserProperties)" +
-                    "{window.wallpaperPropertyListener.applyUserProperties(${out})}"
+            JSONObject(File(dir, "project.json").readText())
+                .optJSONObject("general")?.optJSONObject("properties")
         } catch (_: Throwable) {
             null
         }
+    }
+
+    /** 壁纸在壁纸引擎中的相对路径，也就是 wp_properties_ 偏好键的后缀。 */
+    private fun filePathFor(ctx: Context, dir: File): String {
+        return try {
+            val base = File(ctx.filesDir, ROOT_DIR)
+            if (dir.parentFile?.canonicalPath == base.canonicalPath) {
+                "$ROOT_DIR/${dir.name}"
+            } else {
+                dir.absolutePath
+            }
+        } catch (_: Throwable) {
+            "$ROOT_DIR/${dir.name}"
+        }
+    }
+
+    /** 壁纸引擎已保存的用户属性（JSON 对象，值形如 {"value": ...}）。 */
+    private fun savedProperties(ctx: Context, filePath: String): JSONObject? {
+        val raw = defaultPrefs(ctx)?.getString("wp_properties_$filePath", null) ?: return null
+        return try {
+            JSONObject(raw)
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    /** 合并 project.json 默认值与用户保存值。 */
+    private fun mergedProperties(ctx: Context, dir: File): JSONObject? {
+        val defs = projectProperties(dir) ?: return null
+        val out = JSONObject()
+        val keys = defs.keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            val item = defs.optJSONObject(key) ?: continue
+            out.put(key, JSONObject().put("value", item.opt("value") ?: JSONObject.NULL))
+        }
+        val saved = savedProperties(ctx, filePathFor(ctx, dir))
+        if (saved != null) {
+            val savedKeys = saved.keys()
+            while (savedKeys.hasNext()) {
+                val key = savedKeys.next()
+                val value = saved.optJSONObject(key)?.opt("value") ?: continue
+                val target = out.optJSONObject(key) ?: JSONObject().also { out.put(key, it) }
+                target.put("value", value)
+            }
+        }
+        return if (out.length() == 0) null else out
+    }
+
+    /** 生成把用户属性推送给页面的脚本。 */
+    private fun propertiesJs(ctx: Context, dir: File): String? {
+        val merged = mergedProperties(ctx, dir) ?: return null
+        return "(function(){try{var l=window.wallpaperPropertyListener;" +
+            "if(l&&l.applyUserProperties){l.applyUserProperties($merged)}}catch(e){}})()"
+    }
+
+    /** 把指定壁纸的最新属性推送给桌面渲染器与预览页。 */
+    private fun pushPropertiesToDir(ctx: Context, dir: File) {
+        for (r in renderers.values) {
+            if (r.dir.absolutePath == dir.absolutePath) r.pushProperties()
+        }
+        val wv = previewWebView
+        if (wv != null && previewDir?.absolutePath == dir.absolutePath) {
+            val js = propertiesJs(ctx, dir) ?: return
+            try {
+                wv.evaluateJavascript(js, null)
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
+    private var propertyListenerRegistered = false
+    private var propertyPrefsListener: android.content.SharedPreferences.OnSharedPreferenceChangeListener? = null
+
+    /** 监听壁纸引擎保存的属性，修改后实时推送到正在显示的网页。 */
+    private fun ensurePropertyListener(ctx: Context) {
+        if (propertyListenerRegistered) return
+        val prefs = defaultPrefs(ctx) ?: return
+        propertyListenerRegistered = true
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == null || !key.startsWith("wp_properties_")) return@OnSharedPreferenceChangeListener
+            val filePath = key.removePrefix("wp_properties_")
+            mainHandler.post {
+                for (r in renderers.values) {
+                    if (filePathFor(r.ctx, r.dir) == filePath) r.pushProperties()
+                }
+                val wv = previewWebView
+                val dir = previewDir
+                if (wv != null && dir != null && filePathFor(wv.context, dir) == filePath) {
+                    propertiesJs(wv.context, dir)?.let { js ->
+                        try {
+                            wv.evaluateJavascript(js, null)
+                        } catch (_: Throwable) {
+                        }
+                    }
+                }
+            }
+        }
+        propertyPrefsListener = listener
+        prefs.registerOnSharedPreferenceChangeListener(listener)
     }
 
     private fun mimeType(name: String): String {
@@ -623,17 +1050,36 @@ internal object WebWallpaper {
         }
     }
 
-    private fun randomToken(): String {
-        val chars = "abcdefghijklmnopqrstuvwxyz0123456789"
-        val rnd = java.security.SecureRandom()
-        val sb = StringBuilder()
-        repeat(16) { sb.append(chars[rnd.nextInt(chars.length)]) }
-        return sb.toString()
+    /**
+     * 同一壁纸目录固定使用同一个虚拟主机名。
+     * localStorage/IndexedDB 按 origin 隔离，随机主机名会让每次重载变成新的 origin，
+     * 导致壁纸保存的设置丢失。
+     */
+    private fun hostFor(dir: File): String {
+        return try {
+            val hex = java.security.MessageDigest.getInstance("MD5")
+                .digest(dir.name.toByteArray())
+                .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+            "we-${hex.substring(0, 16)}.local"
+        } catch (_: Throwable) {
+            "we-${Integer.toHexString(dir.name.hashCode())}.local"
+        }
     }
 
-    /** 创建一个从 [dir] 加载资源的 WebView（桌面壁纸与预览页共用）。 */
-    private fun createWebView(context: Context, dir: File, host: String): WebView {
-        val propsJs = defaultPropertiesJs(dir)
+    /**
+     * 创建一个从 [dir] 加载资源的 WebView（桌面壁纸与预览页共用）。
+     *
+     * [onRendererGone] 在 WebView 渲染进程被系统回收时回调；必须处理该事件并
+     * 返回 true，否则系统会终止整个应用（AwBrowserTerminator）。
+     */
+    private fun createWebView(
+        context: Context,
+        dir: File,
+        host: String,
+        isPaused: () -> Boolean = { false },
+        onRendererGone: (() -> Unit)? = null
+    ): WebView {
+        ensurePropertyListener(context)
         val wv = WebView(context)
         wv.setBackgroundColor(Color.BLACK)
         wv.setLayerType(View.LAYER_TYPE_HARDWARE, null)
@@ -677,7 +1123,7 @@ internal object WebWallpaper {
                 return try {
                     if (file.name.endsWith(".html", true) || file.name.endsWith(".htm", true)) {
                         // 在页面脚本执行前注入媒体守卫
-                        val html = injectMediaGuard(file.readText(Charsets.UTF_8))
+                        val html = injectMediaGuard(file.readText(Charsets.UTF_8), isPaused())
                         Log.i(TAG, "media guard injected into $rel")
                         WebResourceResponse(
                             "text/html", "UTF-8",
@@ -711,7 +1157,8 @@ internal object WebWallpaper {
                             "window.requestAnimationFrame=function(cb){return raf(function(t){" +
                             "if(t-last<min){return window.requestAnimationFrame(cb);}" +
                             "last=t;cb(t);});};})();")
-                    if (!propsJs.isNullOrBlank()) js.append(propsJs)
+                    // 推送用户属性（project.json 默认值 + 壁纸引擎保存值）
+                    propertiesJs(view.context, dir)?.let { js.append(it) }
                     // 触摸 → mousemove 桥接：WebView 默认把滑动当作滚动手势，
                     // 不会派生 mousemove，网页壁纸的鼠标跟随会失效。
                     js.append(
@@ -737,6 +1184,17 @@ internal object WebWallpaper {
                     view.evaluateJavascript(
                         "(function(){return typeof window.__wePauseAll})()"
                     ) { r -> Log.i(TAG, "media guard state: $r") }
+                    // 加载期间壁纸可能已被隐藏，此时页面刚解析完还可能自动重试播放
+                    if (isPaused()) {
+                        view.evaluateJavascript(PAUSE_MEDIA_JS, null)
+                        view.onPause()
+                    }
+                    // 部分壁纸在异步初始化完成后才注册属性监听，延迟再推一次
+                    view.postDelayed({
+                        propertiesJs(view.context, dir)?.let {
+                            view.evaluateJavascript(it, null)
+                        }
+                    }, 800L)
                 } catch (t: Throwable) {
                     Log.w(TAG, "inject web wallpaper script failed", t)
                 }
@@ -746,6 +1204,20 @@ internal object WebWallpaper {
                 view: WebView, request: WebResourceRequest, error: android.webkit.WebResourceError
             ) {
                 Log.e(TAG, "web error: ${error.errorCode} ${error.description} ${request.url}")
+            }
+
+            override fun onRenderProcessGone(
+                view: WebView, detail: android.webkit.RenderProcessGoneDetail
+            ): Boolean {
+                // 返回 true 表示应用已处理，系统不再终止进程；
+                // 此后该 WebView 不能继续使用，由调用方销毁并重建。
+                Log.w(TAG, "web renderer process gone (didCrash=${detail.didCrash()})")
+                try {
+                    onRendererGone?.invoke()
+                } catch (t: Throwable) {
+                    Log.w(TAG, "handle renderer gone failed", t)
+                }
+                return true
             }
         }
 
@@ -759,15 +1231,17 @@ internal object WebWallpaper {
     }
 
     /** 把媒体守卫脚本插到页面最前面（doctype 之后），保证早于页面脚本执行。 */
-    private fun injectMediaGuard(html: String): String {
+    private fun injectMediaGuard(html: String, paused: Boolean = false): String {
+        // 页面在壁纸不可见时加载的话，从第一行脚本起就禁止自动播放
+        val guard = MEDIA_GUARD_JS.replace("__WE_PAUSED__", if (paused) "true" else "false")
         val trimmed = html.trimStart()
         if (trimmed.startsWith("<!doctype", ignoreCase = true)) {
             val end = html.indexOf('>')
             if (end >= 0) {
-                return html.substring(0, end + 1) + MEDIA_GUARD_JS + html.substring(end + 1)
+                return html.substring(0, end + 1) + guard + html.substring(end + 1)
             }
         }
-        return MEDIA_GUARD_JS + html
+        return guard + html
     }
 
     /** 把 URL 路径安全地映射到壁纸目录内的文件。 */
@@ -796,7 +1270,8 @@ internal object WebWallpaper {
         val densityDpi: Int
     ) {
         /** 随机主机名，避免与真实域名冲突，也避免其他页面引用本地资源 */
-        private val host = "we-${randomToken()}.local"
+        /** 固定主机名，同一壁纸的 localStorage 等设置才能在重载后保留 */
+        private val host = hostFor(dir)
 
         /** WebView 内部渲染倍率，低于 1 时按比例缩小布局再放大显示 */
         private val viewScale: Float = renderScale(ctx)
@@ -805,6 +1280,9 @@ internal object WebWallpaper {
         private var presentation: Presentation? = null
         private var webView: WebView? = null
         private var paused = false
+
+        /** 渲染进程在壁纸不可见时死亡，等恢复可见再重建，避免后台加载页面并出声。 */
+        private var needsRecreate = false
 
         /**
          * 已停止标记。创建任务通过 post 异步执行，如果 stop() 在任务执行前发生，
@@ -862,8 +1340,19 @@ internal object WebWallpaper {
                     val p = Presentation(themeCtx, vd.display)
                     p.setCancelable(false)
 
-                    val wv = createWebView(p.context, dir, host)
+                    val wv = createWebView(p.context, dir, host,
+                        isPaused = { paused },
+                        onRendererGone = { onRendererGone() })
                     webView = wv
+                    if (paused) {
+                        // 壁纸当前不可见：新 WebView 直接进入暂停状态，避免后台出声
+                        try {
+                            wv.onPause()
+                            wv.setRendererPriorityPolicy(
+                                WebView.RENDERER_PRIORITY_WAIVED, true)
+                        } catch (_: Throwable) {
+                        }
+                    }
                     // 降低渲染倍率：虚拟屏仍是全屏尺寸，WebView 以较小尺寸布局后放大，
                     // 这样画面仍铺满屏幕，但内核只按缩小后的分辨率光栅化。
                     val root = android.widget.FrameLayout(p.context)
@@ -931,6 +1420,14 @@ internal object WebWallpaper {
             if (paused == p) return
             paused = p
             mainHandler.post {
+                if (needsRecreate) {
+                    // 渲染进程是在壁纸隐藏期间死的，恢复可见时再重建
+                    if (!p) {
+                        needsRecreate = false
+                        start()
+                    }
+                    return@post
+                }
                 val wv = webView ?: return@post
                 try {
                     // 注意：不能用 pauseTimers()/resumeTimers()，它们会影响进程内
@@ -938,11 +1435,13 @@ internal object WebWallpaper {
                     if (p) {
                         // 页面里的 audio/video 不受 WebView.onPause 控制，需显式暂停
                         wv.evaluateJavascript(PAUSE_MEDIA_JS, null)
+                        wv.evaluateJavascript(PROPERTY_PAUSED_JS, null)
                         wv.onPause()
                         wv.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_WAIVED, true)
                     } else {
                         wv.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false)
                         wv.evaluateJavascript(RESUME_MEDIA_JS, null)
+                        wv.evaluateJavascript(PROPERTY_RESUMED_JS, null)
                         wv.onResume()
                     }
                     Log.i(TAG, "web wallpaper ${if (p) "paused" else "resumed"}")
@@ -952,8 +1451,44 @@ internal object WebWallpaper {
             }
         }
 
+        /** 把最新的用户属性推送给页面（属性修改或 SharedPreferences 变化后调用）。 */
+        fun pushProperties() {
+            mainHandler.post {
+                val wv = webView ?: return@post
+                val js = propertiesJs(ctx, dir) ?: return@post
+                try {
+                    wv.evaluateJavascript(js, null)
+                } catch (t: Throwable) {
+                    Log.w(TAG, "push web properties failed", t)
+                }
+            }
+        }
+
+        /** 渲染进程被系统回收（OOM 等）后清理旧 WebView，并在同一 Surface 上重建。 */
+        private fun onRendererGone() {
+            if (cancelled) return
+            Log.w(TAG, "recreate web renderer after process gone: ${dir.name}")
+            val p = presentation
+            val wv = webView
+            val vd = display
+            presentation = null
+            webView = null
+            display = null
+            try { wv?.stopLoading() } catch (_: Throwable) {}
+            try { p?.dismiss() } catch (_: Throwable) {}
+            try { vd?.release() } catch (_: Throwable) {}
+            try { wv?.destroy() } catch (_: Throwable) {}
+            if (paused) {
+                // 壁纸不可见，先不重建；等 setPaused(false) 时再创建，避免后台出声
+                needsRecreate = true
+                return
+            }
+            if (surface.isValid) start() else stop()
+        }
+
         fun stop() {
             cancelled = true
+            needsRecreate = false
             val p = presentation
             val wv = webView
             val vd = display

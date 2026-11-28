@@ -107,9 +107,26 @@ internal object DownloadProgressUi {
         }
     }
 
+    /**
+     * 电脑端可能以空标题、"Unknown wallpaper" 或 "未知" 发送任务，
+     * 此时退回文件名（去掉扩展名）作为标题。
+     */
+    private fun resolveTitle(rawTitle: String, file: String): String {
+        val title = rawTitle.trim()
+        val unknown = title.isEmpty() ||
+            title.equals("Unknown wallpaper", ignoreCase = true) ||
+            title.equals("unknown", ignoreCase = true) ||
+            title == "未知"
+        return if (unknown) {
+            file.substringAfterLast('/').substringBeforeLast('.')
+        } else {
+            title
+        }
+    }
+
     private fun onStart(info: Any, file: String) {
         val size = invokeLong(info, "getSize")
-        val title = invokeString(info, "getTitle")
+        val title = resolveTitle(invokeString(info, "getTitle"), file)
         totals[file] = size
         remaining[file] = size
         if (title.isNotBlank()) titles[file] = title

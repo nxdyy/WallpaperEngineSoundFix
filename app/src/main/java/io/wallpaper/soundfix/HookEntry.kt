@@ -35,6 +35,10 @@ import java.util.WeakHashMap
  */
 class HookEntry : XposedModule() {
 
+    /** 当前浏览页实例，电脑端传输的网页壁纸自动导入后用来刷新列表。 */
+    @Volatile
+    private var browseActivityRef: java.lang.ref.WeakReference<android.app.Activity>? = null
+
     override fun onModuleLoaded(param: XposedModuleInterface.ModuleLoadedParam) {
         super.onModuleLoaded(param)
         try {
@@ -182,6 +186,13 @@ class HookEntry : XposedModule() {
             hookMpkgImportWarning(cl)
         } catch (t: Throwable) {
             log(Log.ERROR, TAG, "hook mpkg import warning failed", t)
+        }
+
+        // WEP_ 前缀文件与“等待下载”占位名不一致时补删占位，避免重复壁纸
+        try {
+            hookWepPendingCleanup(cl)
+        } catch (t: Throwable) {
+            log(Log.ERROR, TAG, "hook wep pending cleanup failed", t)
         }
 
         // 壁纸自定义页面文案汉化
@@ -1224,6 +1235,35 @@ class HookEntry : XposedModule() {
     }
 
     /**
+     * 电脑端使用 WEP_ 前缀文件名传输时，beginUpload 生成的“等待下载”占位
+     * 仍使用原文件名（<id>.mpkg）；transmissionStart 只按 WEP_<id>.mpkg 删除占位，
+     * 占位会永远停留在列表里，表现为传输完成后出现两个相同壁纸。
+     * 这里在按 WEP_ 路径清理时，把去掉前缀的原路径也清理一次。
+     */
+    private fun hookWepPendingCleanup(cl: ClassLoader) {
+        val browseClass = cl.loadClass("io.wallpaperengine.weclient.BrowseActivity")
+        val method = browseClass.getDeclaredMethod(
+            "removeWallpapersWithPath", String::class.java)
+        method.isAccessible = true
+        hook(method).intercept { chain ->
+            val result = chain.proceed()
+            try {
+                val path = chain.getArg(0) as? String
+                val prefix = "downloads/WEP_"
+                if (path != null && path.length > prefix.length &&
+                    path.startsWith(prefix, ignoreCase = true)) {
+                    val original = "downloads/" + path.substring(prefix.length)
+                    method.invoke(chain.thisObject, original)
+                }
+            } catch (t: Throwable) {
+                log(Log.WARN, TAG, "remove wep pending placeholder failed", t)
+            }
+            result
+        }
+        log(Log.INFO, TAG, "wep pending cleanup hook installed")
+    }
+
+    /**
      * 壁纸类型角标：
      * - 列表适配器创建时保存 SceneLib 并后台扫描未判定类型的壁纸
      * - 列表项绑定时在封面左上角显示类型
@@ -1299,6 +1339,13 @@ class HookEntry : XposedModule() {
         hook(onCreate).intercept { chain ->
             val result = chain.proceed()
             try {
+                val activity = chain.thisObject as android.app.Activity
+                browseActivityRef = java.lang.ref.WeakReference(activity)
+                ensureDownloadWatcher(activity)
+            } catch (t: Throwable) {
+                log(Log.WARN, TAG, "init download watcher failed", t)
+            }
+            try {
                 DownloadProgressUi.attach(chain.thisObject)
             } catch (t: Throwable) {
                 log(Log.WARN, TAG, "attach download progress ui failed", t)
@@ -1338,6 +1385,11 @@ class HookEntry : XposedModule() {
         hook(updateNotification).intercept { chain ->
             val result = chain.proceed()
             try {
+                (chain.thisObject as? Context)?.let { ensureDownloadWatcher(it) }
+            } catch (t: Throwable) {
+                log(Log.WARN, TAG, "ensure download watcher failed", t)
+            }
+            try {
                 DownloadProgressUi.onDownloadInfo(chain.getArg(0))
             } catch (t: Throwable) {
                 log(Log.WARN, TAG, "update download progress failed", t)
@@ -1352,6 +1404,20 @@ class HookEntry : XposedModule() {
         }
 
         log(Log.INFO, TAG, "download progress hook installed")
+    }
+
+    /**
+     * 启动下载目录监听：电脑端“发送至移动设备”传来的网页壁纸 ZIP
+     * 写入 files/downloads 后自动导入，并刷新已打开的壁纸列表。
+     */
+    private fun ensureDownloadWatcher(ctx: Context) {
+        WebWallpaper.startDownloadWatcher(ctx.applicationContext) {
+            try {
+                browseActivityRef?.get()?.recreate()
+            } catch (t: Throwable) {
+                log(Log.WARN, TAG, "refresh wallpaper list failed", t)
+            }
+        }
     }
 
     /**
@@ -1845,7 +1911,7 @@ class HookEntry : XposedModule() {
 
     /**
      * 每个版本只显示一次当前版本的更新日志。
-     * 请求 logv<当前 versionCode>（例如 versionCode 为 8 时请求 /logv8）。
+     * 请求 logv<当前 versionCode>（例如 versionCode 为 9 时请求 /logv9）。
      */
     private fun maybeShowChangelog(ctx: Context, prefs: SharedPreferences) {
         val current = currentModuleVersion()
@@ -2518,8 +2584,8 @@ class HookEntry : XposedModule() {
         private const val CHANGELOG_VERSION_KEY = "we_soundfix_changelog_version"
         private const val API_BASE = "https://project.nxdyy.cn/WallpaperEnginePlus/"
         /** 与 build.gradle.kts 的 versionCode 保持一致，作为取不到模块信息时的回退值 */
-        private const val MODULE_VERSION_CODE = 8
-        private const val MODULE_VERSION_NAME = "2.0-rc1"
+        private const val MODULE_VERSION_CODE = 9
+        private const val MODULE_VERSION_NAME = "2.0"
 
         /** 注入壁纸引擎设置的音量滑条标题和摘要，按设备语言匹配。 */
         private val PREF_I18N = mapOf(

@@ -49,6 +49,9 @@ internal object SceneImportWarning {
         if (item == null || path.isNullOrBlank()) return
         if (!path.endsWith(".mpkg", ignoreCase = true)) return
 
+        // 电脑端已经做过声音修复的包带 WEP_ 前缀，不再提示可能的声音问题
+        if (path.substringAfterLast('/').startsWith("WEP_", ignoreCase = true)) return
+
         // 传输完成时先 setFilePath 再 setProgress(100)；刚上传排队时 progress 为 0，
         // 稍等片刻再检查可避免把“等待下载”的条目误判为完成。
         handler.postDelayed({

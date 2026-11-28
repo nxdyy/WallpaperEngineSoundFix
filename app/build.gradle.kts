@@ -13,8 +13,8 @@ android {
         applicationId = "io.wallpaper.soundfix"
         minSdk = 28
         targetSdk = 37
-        versionCode = 8
-        versionName = "2.0-rc1"
+        versionCode = 9
+        versionName = "2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

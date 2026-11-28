@@ -249,6 +249,40 @@ internal object WebWallpaper {
      * 成功返回新目录名，失败抛出带中文提示的异常。
      */
     fun importZip(ctx: Context, uri: android.net.Uri): String {
+        val input = ctx.contentResolver.openInputStream(uri)
+            ?: throw IllegalStateException("无法读取所选文件")
+        val rawName = displayName(ctx, uri)?.substringBeforeLast('.')?.trim().orEmpty()
+        return input.use { importZipStream(ctx, it, rawName.ifBlank { "webwallpaper" }) }
+    }
+
+    /**
+     * 电脑端传输完成后的自动导入。
+     * 同名目录已存在时表示电脑端重发了同一张壁纸，成功后覆盖旧目录，
+     * 让已保存的自定义设置（按目录名存储）继续生效。
+     */
+    fun autoImportDownloadedZip(ctx: Context, file: File): String {
+        if (!file.name.endsWith(".zip", ignoreCase = true)) {
+            throw IllegalArgumentException("不是 ZIP 文件")
+        }
+        val rawName = file.nameWithoutExtension.trim().ifBlank { "webwallpaper" }
+        val imported = java.io.FileInputStream(file).use {
+            importZipStream(ctx, it, rawName)
+        }
+        file.delete()
+        if (imported != rawName) {
+            val base = File(ctx.filesDir, ROOT_DIR)
+            val target = File(base, rawName)
+            target.deleteRecursively()
+            if (!File(base, imported).renameTo(target)) {
+                Log.w(TAG, "rename imported dir $imported -> $rawName failed")
+                return imported
+            }
+            return rawName
+        }
+        return imported
+    }
+
+    private fun importZipStream(ctx: Context, raw: java.io.InputStream, rawName: String): String {
         val base = File(ctx.filesDir, ROOT_DIR)
         if (!base.isDirectory && !base.mkdirs()) throw IllegalStateException("无法创建壁纸目录")
         val temp = File(ctx.cacheDir, "webimport-${System.currentTimeMillis()}")
@@ -256,36 +290,32 @@ internal object WebWallpaper {
         try {
             var total = 0L
             var count = 0
-            val input = ctx.contentResolver.openInputStream(uri)
-                ?: throw IllegalStateException("无法读取所选文件")
-            input.use { raw ->
-                java.util.zip.ZipInputStream(java.io.BufferedInputStream(raw)).use { zip ->
-                    val buffer = ByteArray(64 * 1024)
-                    while (true) {
-                        val entry = zip.nextEntry ?: break
-                        count++
-                        if (count > 3000) throw IllegalStateException("压缩包内文件过多")
-                        val name = entry.name.replace('\\', '/')
-                        if (name.startsWith("/") || name.split('/').any { it == ".." }) {
-                            throw IllegalStateException("压缩包路径不合法")
-                        }
-                        if (entry.isDirectory) continue
-                        val out = File(temp, name)
-                        val rootPath = temp.canonicalPath + File.separator
-                        if (!out.canonicalPath.startsWith(rootPath)) {
-                            throw IllegalStateException("压缩包路径不合法")
-                        }
-                        out.parentFile?.mkdirs()
-                        java.io.FileOutputStream(out).use { fos ->
-                            while (true) {
-                                val n = zip.read(buffer)
-                                if (n <= 0) break
-                                total += n
-                                if (total > 200L * 1024 * 1024) {
-                                    throw IllegalStateException("压缩包内容过大")
-                                }
-                                fos.write(buffer, 0, n)
+            java.util.zip.ZipInputStream(java.io.BufferedInputStream(raw)).use { zip ->
+                val buffer = ByteArray(64 * 1024)
+                while (true) {
+                    val entry = zip.nextEntry ?: break
+                    count++
+                    if (count > 3000) throw IllegalStateException("压缩包内文件过多")
+                    val name = entry.name.replace('\\', '/')
+                    if (name.startsWith("/") || name.split('/').any { it == ".." }) {
+                        throw IllegalStateException("压缩包路径不合法")
+                    }
+                    if (entry.isDirectory) continue
+                    val out = File(temp, name)
+                    val rootPath = temp.canonicalPath + File.separator
+                    if (!out.canonicalPath.startsWith(rootPath)) {
+                        throw IllegalStateException("压缩包路径不合法")
+                    }
+                    out.parentFile?.mkdirs()
+                    java.io.FileOutputStream(out).use { fos ->
+                        while (true) {
+                            val n = zip.read(buffer)
+                            if (n <= 0) break
+                            total += n
+                            if (total > 200L * 1024 * 1024) {
+                                throw IllegalStateException("压缩包内容过大")
                             }
+                            fos.write(buffer, 0, n)
                         }
                     }
                 }
@@ -293,7 +323,6 @@ internal object WebWallpaper {
 
             validateWebProject(temp)
 
-            val rawName = displayName(ctx, uri)?.substringBeforeLast('.')?.trim().orEmpty()
             val name = uniqueDirName(base, rawName.ifBlank { "webwallpaper" })
             val dest = File(base, name)
             if (!temp.renameTo(dest)) {
@@ -303,6 +332,78 @@ internal object WebWallpaper {
         } finally {
             temp.deleteRecursively()
         }
+    }
+
+    // ---- 下载目录监听：电脑端发来的网页壁纸 ZIP 自动导入 ----
+
+    private val watcherLock = Any()
+    private var downloadWatcher: android.os.FileObserver? = null
+
+    private val pendingImports: MutableSet<String> =
+        java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
+
+    /** 监听 files/downloads，把电脑端传输完成的网页壁纸 ZIP 自动导入。可重复调用。 */
+    @Suppress("DEPRECATION")
+    fun startDownloadWatcher(ctx: Context, onImported: (String) -> Unit) {
+        synchronized(watcherLock) {
+            if (downloadWatcher != null) return
+            val dir = File(ctx.filesDir, "downloads")
+            if (!dir.isDirectory && !dir.mkdirs()) {
+                Log.w(TAG, "downloads dir unavailable")
+                return
+            }
+
+            val mask = android.os.FileObserver.CREATE or
+                android.os.FileObserver.CLOSE_WRITE or
+                android.os.FileObserver.MOVED_TO
+            val observer = if (android.os.Build.VERSION.SDK_INT >= 29) {
+                object : android.os.FileObserver(dir, mask) {
+                    override fun onEvent(event: Int, path: String?) {
+                        onDownloadEvent(ctx, dir, path, onImported)
+                    }
+                }
+            } else {
+                object : android.os.FileObserver(dir.absolutePath, mask) {
+                    override fun onEvent(event: Int, path: String?) {
+                        onDownloadEvent(ctx, dir, path, onImported)
+                    }
+                }
+            }
+            observer.startWatching()
+            downloadWatcher = observer
+            Log.i(TAG, "download watcher started: ${dir.absolutePath}")
+        }
+    }
+
+    private fun onDownloadEvent(
+        ctx: Context, dir: File, path: String?, onImported: (String) -> Unit
+    ) {
+        val name = path ?: return
+        if (!name.endsWith(".zip", ignoreCase = true)) return
+        val file = File(dir, name)
+        val key = file.absolutePath + "|" + file.length() + "|" + file.lastModified()
+        if (!pendingImports.add(key)) return
+
+        mainHandler.postDelayed({
+            Thread {
+                try {
+                    if (!file.isFile || file.length() == 0L) return@Thread
+                    val imported = autoImportDownloadedZip(ctx, file)
+                    Log.i(TAG, "auto imported web wallpaper: $imported")
+                    mainHandler.post {
+                        onImported(imported)
+                        android.widget.Toast.makeText(
+                            ctx, "已自动导入网页壁纸：$imported",
+                            android.widget.Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                } catch (t: Throwable) {
+                    Log.w(TAG, "auto import ${file.name} failed", t)
+                } finally {
+                    pendingImports.remove(key)
+                }
+            }.start()
+        }, 800)
     }
 
     /** 检查解压后的目录是否是合法的网页壁纸。 */

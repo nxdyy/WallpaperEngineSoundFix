@@ -12,6 +12,8 @@
 
 WallpaperEnginePlus 是一个面向 **Wallpaper Engine for Android** 的 Xposed 增强模块。它在修复原版声音问题的同时，为 Android 客户端补上了网页壁纸（Web Wallpaper）支持：导入、预览、应用到桌面，以及完整的自定义选项与显示设置。
 
+此外还提供**强烈推荐配合使用的电脑端注入增强**：不注入时，电脑端没有网页壁纸的「发送至移动设备」选项，发送场景壁纸不会合并音频，网页壁纸导出也只是残缺的 mpkg；注入后才能获得完整 ZIP 导出和带音频的场景壁纸传输。详见[电脑端注入](#电脑端注入强烈推荐)。
+
 - 作用域：`io.wallpaperengine.weclient` / `io.wallpaperengine.nxdyy`
 
 ### 功能特性
@@ -49,6 +51,17 @@ WallpaperEnginePlus 是一个面向 **Wallpaper Engine for Android** 的 Xposed 
 - **设备名标识**：连接电脑时上报的设备名带 `[WEP]` 前缀，方便在电脑端识别
 - **来源询问**：首次打开时确认下载渠道，非官方渠道提供举报与作者主页入口
 - **更新检查**：打开应用只请求 `version`，发现新版本后才请求 `updateinfo`；每个版本显示一次 `logv<版本号>` 更新日志
+
+#### 电脑端增强（强烈推荐，纯注入）
+
+> **强烈建议注入电脑端 DLL**：这是网页壁纸发送/导出、场景壁纸带音频传输能够正常工作的前提；不注入时这些功能不可用或产物不完整。
+
+- **运行期生效**：通过 PowerShell 脚本注入 `WallpaperEnginePlus.dll`，不修改 `scripts.js`、不写注册表；关闭壁纸引擎后修改全部消失，重新注入即可恢复
+- **网页壁纸发送/导出**：网页壁纸右键出现「发送至移动设备」；导出菜单显示 `[WEP]导出为zip文件`，导出内容为包含全部资源的完整 ZIP
+- **场景壁纸带音频传输**：发送到手机时自动把生成的 mpkg 与电脑版 `scene.pkg` 合并（保留音频、使用移动版纹理/着色器），预览优先使用电脑版 `preview.gif`，文件名加 `WEP_` 前缀
+- **设备识别**：仅当目标手机在电脑端显示为 `[WEP]` 设备时才执行声音修复；手机端识别 `WEP_` 前缀后不再弹出声音风险提示
+- **界面增强**：标题栏 `PLUS` 徽章（点击弹出关于窗口）、注入成功提示
+- **详细日志**：注入过程写入 `wep_inject.log`，DLL 运行日志写入 Wallpaper Engine 安装目录的 `we_web_hook.log`
 
 ### 演示
 
@@ -180,6 +193,8 @@ WallpaperService Surface ← VirtualDisplay ← Presentation(FrameLayout) ← We
 > **注意**：场景音频修复仅支持 **arm64-v8a** 架构设备
 >
 > **重要**：直接通过电脑版 Wallpaper Engine 导出的场景壁纸文件**不包含音频文件**，必须手动转换（例如使用 [PKG 工具箱](https://project.nxdyy.cn/WallpaperEngineSoundFix/) 或 [pkg2mpkg](https://github.com/nxdyy/pkg2mpkg) 转为手机版 MPKG）后才能听到声音。
+>
+> 使用本项目的电脑端注入，并直接「发送至移动设备」到 `[WEP]` 手机时，电脑端会自动合并 `scene.pkg` 中的音频；导出到本地文件仍需手动转换。
 
 ### 环境要求
 
@@ -229,6 +244,65 @@ cd WallpaperEnginePlus
    - 「网页壁纸帧率限制」「网页壁纸渲染精度」：调整网页壁纸性能
 7. 在「添加」页面导入网页壁纸 ZIP
 
+### 电脑端注入（强烈推荐）
+
+电脑端注入是**完整使用网页壁纸与场景壁纸传输链路的前提**，强烈建议所有用户安装。
+
+> **未注入 DLL 时：**
+> - 网页壁纸右键没有「发送至移动设备」
+> - 网页壁纸导出仍是残缺 mpkg（缺少 `index.html` 等资源，手机端无法使用）
+> - 场景壁纸发送到手机不会合并 `scene.pkg` 的音频，播放时无声
+> - 没有标题栏 PLUS 徽章、注入提示与详细日志
+
+#### 环境要求
+
+- Windows 10 / 11（64 位）
+- Wallpaper Engine **2.8.0.42**（Steam 版，DLL 按该版本适配）
+- 64 位 PowerShell（脚本会自动切换到 64 位）
+- 在线模式需要能访问 `project.nxdyy.cn`
+
+#### 在线注入（推荐）
+
+1. 打开 Wallpaper Engine 的**壁纸浏览窗口**并保持打开
+2. 在 PowerShell 中执行：
+
+```powershell
+[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $c=(New-Object Net.WebClient).DownloadData('https://project.nxdyy.cn/WallpaperEnginePlus/run.ps1'); iex ([Text.Encoding]::UTF8.GetString($c).TrimStart([char]0xFEFF))
+```
+
+脚本会：
+
+1. 校验自身来自 `project.nxdyy.cn`
+2. 请求 `dllinfo`，按 SHA256 比对/下载 DLL 到当前终端目录的 `WallpaperEnginePlus\WallpaperEnginePlus.dll`
+3. 注入壁纸浏览窗口
+4. 输出更新日志、详细注入日志，并在结束时弹出作者说明
+
+#### 本地注入
+
+仓库只需一个 PowerShell 脚本和一个 DLL：
+
+```powershell
+# 使用本地 bin\x64\Release* 中最新的 DLL
+powershell -NoProfile -ExecutionPolicy Bypass -File ".\WallpaperEnginePlus.ps1" -L
+
+# 本地开发：跳过“与官方脚本比对”的来源校验
+powershell -NoProfile -ExecutionPolicy Bypass -File ".\WallpaperEnginePlus.ps1" -F -L
+```
+
+| 参数 | 说明 |
+|------|------|
+| `-L` | 本地 DLL 模式，不联网下载 DLL |
+| `-F` | 本地文件执行时跳过来源校验（在线模式不受影响） |
+| `-DllPath` | 指定 DLL 路径 |
+| `-ProcessId` | 指定 wallpaperui.exe 的 PID（默认自动查找浏览窗口） |
+
+#### 说明
+
+- 每次**重启壁纸引擎后都需要重新注入**，修改不会写入磁盘。
+- 如果之前注入过旧版本，请完全关闭壁纸浏览窗口后重新打开再注入（MinHook 无法在同一进程二次初始化）。
+- 注入日志：`wep_inject.log`（脚本同目录或当前终端目录）；DLL 日志：`<Wallpaper Engine 安装目录>\we_web_hook.log`。
+- 仅适配 Wallpaper Engine 2.8.0.42；Steam 更新后需等待 DLL 适配更新。
+
 ### 项目结构
 
 ```
@@ -277,6 +351,8 @@ app/src/main/
 
 WallpaperEnginePlus is an Xposed enhancement module for **Wallpaper Engine for Android**. Besides fixing the original sound issues, it adds full web wallpaper support to the Android client: importing, previewing, applying to the home screen, custom properties and display options.
 
+It also ships a **strongly recommended desktop injection** companion. Without it, web wallpapers have no "Send to mobile device" entry, scene wallpapers are sent without audio, and exported web wallpapers are incomplete mpkg files; with it you get full ZIP export and audio-preserving scene wallpaper transfers. See [Desktop injection](#desktop-injection-strongly-recommended).
+
 - Scope: `io.wallpaperengine.weclient` / `io.wallpaperengine.nxdyy`
 
 ### Features
@@ -313,6 +389,17 @@ WallpaperEnginePlus is an Xposed enhancement module for **Wallpaper Engine for A
 - **Device name**: the name reported to the PC is prefixed with `[WEP]`
 - **Source prompt**: first-launch download-source check with report and author-page entries
 - **Update check**: only `version` is requested on launch; `updateinfo` is fetched only when a new version exists, and each version shows its `logv<versionCode>` changelog once
+
+#### Desktop enhancements (strongly recommended, injection only)
+
+> **Injecting the desktop DLL is strongly recommended.** It is required for web wallpaper sending/export and for scene wallpaper transfers with audio; without it these features are unavailable or produce incomplete files.
+
+- **Runtime only**: inject `WallpaperEnginePlus.dll` with a PowerShell script; `scripts.js` is not modified and nothing is written to the registry. Closing Wallpaper Engine removes every change; inject again to restore them
+- **Web wallpaper send/export**: web wallpapers show "Send to mobile device"; the export menu reads `[WEP]Export as ZIP` and produces a full ZIP with all assets
+- **Scene wallpaper with audio**: when sending to a `[WEP]` phone, the generated mpkg is merged with the desktop `scene.pkg` (audio kept, mobile textures/shaders used), the desktop `preview.gif` is preferred, and the file gets a `WEP_` prefix
+- **Device check**: the audio merge only runs when the target device name starts with `[WEP]`; the phone skips the sound-risk prompt for `WEP_` files
+- **UI extras**: titlebar `PLUS` badge (click opens an About window) and an injection success toast
+- **Logs**: injection log `wep_inject.log`; DLL log `we_web_hook.log` in the Wallpaper Engine folder
 
 ### Demo
 
@@ -442,6 +529,8 @@ Injected after the doctype, before page scripts:
 > **Note**: Scene audio fix only supports **arm64-v8a** devices
 >
 > **Important**: Scene wallpapers exported directly from the desktop version of Wallpaper Engine **do not include audio files**. They must be converted manually (e.g. with [PKG Toolbox](https://project.nxdyy.cn/WallpaperEngineSoundFix/) or [pkg2mpkg](https://github.com/nxdyy/pkg2mpkg)) to the mobile MPKG format before sound can be heard.
+>
+> With the optional desktop injection enabled, sending a scene wallpaper directly to a `[WEP]` phone merges the audio from `scene.pkg` automatically. Exporting to a local file still requires manual conversion.
 
 ### Requirements
 
@@ -488,6 +577,65 @@ cd WallpaperEnginePlus
    - "Wallpaper volume": sound fix for video/scene wallpapers
    - "Web wallpaper FPS limit" / "Web wallpaper render scale": performance tuning
 7. Import a web wallpaper ZIP from the "Add" tab
+
+### Desktop injection (strongly recommended)
+
+The desktop injection is **required for the complete web wallpaper and scene wallpaper transfer workflows** and is strongly recommended for every user.
+
+> **Without the injected DLL:**
+> - Web wallpapers have no "Send to mobile device" entry
+> - Exported web wallpapers remain incomplete mpkg files (missing `index.html` and other assets) and cannot be used on the phone
+> - Scene wallpapers are sent without the audio from `scene.pkg` and play silently
+> - No titlebar PLUS badge, injection toast or detailed logs
+
+#### Requirements
+
+- Windows 10 / 11 (64-bit)
+- Wallpaper Engine **2.8.0.42** (Steam, the DLL targets this build)
+- 64-bit PowerShell (the script relaunches itself in 64-bit if needed)
+- Network access to `project.nxdyy.cn` for online mode
+
+#### Online injection (recommended)
+
+1. Open the Wallpaper Engine **wallpaper browser window** and keep it open
+2. Run in PowerShell:
+
+```powershell
+[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $c=(New-Object Net.WebClient).DownloadData('https://project.nxdyy.cn/WallpaperEnginePlus/run.ps1'); iex ([Text.Encoding]::UTF8.GetString($c).TrimStart([char]0xFEFF))
+```
+
+The script:
+
+1. Verifies that it matches the official script on `project.nxdyy.cn`
+2. Reads `dllinfo`, compares/downloads the DLL by SHA256 into `WallpaperEnginePlus\WallpaperEnginePlus.dll` under the current directory
+3. Injects the wallpaper browser process
+4. Prints the changelog and detailed logs, then shows the author notice
+
+#### Local injection
+
+The repository only needs one PowerShell script and one DLL:
+
+```powershell
+# Use the newest local DLL from bin\x64\Release*
+powershell -NoProfile -ExecutionPolicy Bypass -File ".\WallpaperEnginePlus.ps1" -L
+
+# Local development: skip the "matches the official script" check
+powershell -NoProfile -ExecutionPolicy Bypass -File ".\WallpaperEnginePlus.ps1" -F -L
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `-L` | Local DLL mode, no online download |
+| `-F` | Skip source verification when running from a local file (online mode unaffected) |
+| `-DllPath` | Use a specific DLL path |
+| `-ProcessId` | Target a specific wallpaperui.exe PID (default: auto-detect the browser window) |
+
+#### Notes
+
+- Inject again after every Wallpaper Engine restart; nothing is persisted to disk.
+- If an older DLL was already injected, fully close and reopen the wallpaper browser window first (MinHook cannot be initialized twice in one process).
+- Injection log: `wep_inject.log` (script folder or current directory); DLL log: `<Wallpaper Engine install folder>\we_web_hook.log`.
+- Only Wallpaper Engine 2.8.0.42 is supported; after a Steam update the DLL must be updated first.
 
 ### Project structure
 
